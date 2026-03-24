@@ -1,0 +1,609 @@
+services:
+  # --- IDENTITY NETWORK (auth_net) ---
+  keycloak:
+    image: quay.io/keycloak/keycloak:latest
+    container_name: keycloak
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: start-dev --http-port=8080
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: '${KC_ADMIN_USER}'
+      KC_BOOTSTRAP_ADMIN_PASSWORD: '${KC_ADMIN_PASS}'
+      KC_PROXY_HEADERS: xforwarded
+      KC_HTTP_ENABLED: "true"
+      KC_PROXY: edge
+      KC_HTTP_RELATIVE_PATH: /auth
+      KC_HOSTNAME_URL: https://10.10.0.1/auth
+      KC_HOSTNAME_ADMIN_URL: https://10.10.0.1/auth
+      KC_HOSTNAME_STRICT: "false"
+      KC_HOSTNAME_STRICT_HTTPS: "false"
+      KC_DB: '${SQL_SERVER}'
+      KC_DB_URL: jdbc:postgresql://postgres:5432/keycloak
+      KC_DB_USERNAME: '${KEYCLOAK_USERNAME}'
+      KC_DB_PASSWORD: '${KEYCLOAK_SECRET}'
+    ports:
+      - "8443:8080"
+    networks:
+      auth_net:
+        ipv4_address: 172.35.0.10
+      storage_net:
+    volumes:
+      - /srv/hserverdir-data/keycloak_data:/opt/keycloak/data:Z
+
+  vaultwarden:
+    image: vaultwarden/server:latest
+    container_name: vaultwarden
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      WEBSOCKET_ENABLED: "true"
+      DOMAIN: "https://10.10.0.1:8447/"
+      ADMIN_TOKEN: ${VAULTWARDEN_ADMIN_TOKEN}
+      SIGNUPS_ALLOWED: "false"
+    ports:
+      - "8001:80"
+      - "3012:3012"
+    networks:
+      auth_net:
+        ipv4_address: 172.35.0.20
+    volumes:
+      - /srv/hserverdir-data/vaultwarden:/data:Z
+
+  ejbca:
+    image: primekey/ejbca-ce:latest
+    container_name: ejbca
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    hostname: ejbca
+    environment:
+      - "TLS_SETUP_ENABLED=false"
+    ports:
+      - "8081:8080"
+    networks:
+      auth_net:
+        ipv4_address: 172.35.0.30
+    volumes:
+      - /srv/hserverdir-data/ejbca_data:/opt/primekey/ejbca/data:Z
+
+
+
+  nginx:
+    image: nginx:alpine
+    container_name: nginx
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - /srv/hserverdir-data/configs/nginx.conf:/etc/nginx/nginx.conf:ro
+      - /srv/hserverdir-data/certs:/etc/nginx/certs:ro
+      - /srv/hserverdir-data/cloud_data:/srv/hserverdir-data/cloud_data:ro
+    networks:
+      - dev_net
+      - auth_net
+      - siem_net
+      - storage_net
+    depends_on:
+      - frontend_app
+      - backend_nest
+      - etherpad
+
+
+  neo4j:
+    image: neo4j:latest
+    container_name: neo4j
+    user: "${UID:-1000}:${GID:-1000}"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "7474:7474" # HTTP
+      - "7687:7687" # Bolt (For MindsDB)
+    volumes:
+      - /srv/hserverdir-data/neo4j_graph/data:/data:Z
+      - /srv/hserverdir-data/neo4j_graph/logs:/logs
+    environment:
+      - NEO4J_AUTH=${NEO4J_USER}/${NEO4J_PASSWORD}
+    networks:
+      storage_net:
+        ipv4_address: 172.37.0.30
+
+  # --- DEVSECOPS & DATA (dev_net) ---
+  jenkins:
+    image: jenkins/jenkins:lts
+    container_name: jenkins
+    user: "${MY_UID}:${MY_GID}"
+    group_add:
+      - "990"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - GIT_CONFIG_PARAMETERS='safe.directory=*'
+      - JENKINS_OPTS=--prefix=/jenkins
+      - JAVA_OPTS=-Djava.io.tmpdir=/var/jenkins_home/tmp -Dhudson.plugins.git.GitSCM.ALLOW_LOCAL_CHECKOUT=true
+    ports:
+      - "8082:8080"
+      - "50000:50000"
+    networks:
+      dev_net:
+        ipv4_address: 172.36.0.10
+    volumes:
+      - /srv/hserverdir-data/jenkins:/var/jenkins_home
+      - /srv/hserverdir-data/cloud_data:/cloud_data:Z
+      - /srv/hserverdir-data/backend_source:/var/jenkins_home/backend_repo:z # Add this line
+      - /var/run/docker.sock:/var/run/docker.sock
+      - /usr/bin/docker:/usr/bin/docker  # ADD THIS LINE
+
+  surrealdb:
+    image: surrealdb/surrealdb:latest
+    container_name: surrealdb
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    user: root
+    command: start --log trace --user root --pass root file://data/surreal.db
+    ports:
+      - "8000:8000"
+    networks:
+      dev_net:
+        ipv4_address: 172.36.0.20   # Match the 172.20 subnet
+      storage_net:
+        ipv4_address: 172.37.0.20
+    volumes:
+      - /srv/hserverdir-data/surreal_data:/data:Z
+
+  mindsdb:
+    image: mindsdb/mindsdb:latest
+    container_name: mindsdb
+    environment:
+      - MINDSDB_STORAGE_DIR=/storage
+      - MINDSDB_API=${MINDSDB_API_KEY}
+      - INSTALL_HANDLERS=neo4j,surrealdb,loki
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "47334:47334"
+    networks:
+      dev_net:
+        ipv4_address: 172.36.0.30
+    volumes:
+      - /srv/hserverdir-data/mindsdb_data:/storage:Z
+
+  keydb:
+    image: eqalpha/keydb:latest
+    container_name: keydb
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command: keydb-server --appendonly yes
+    ports:
+      - "6379:6379"
+    networks:
+      storage_net:
+        ipv4_address: 172.37.0.10
+    volumes:
+      - /srv/hserverdir-data/keydb_data:/data:Z
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.6
+    container_name: meilisearch
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+    ports:
+      - "7701:7700"
+    networks:
+      dev_net:
+        ipv4_address: 172.36.0.50
+    volumes:
+      - meilisearch_data:/meili_data
+
+  backend_nest:
+    build:
+      context: ./backend_source
+      dockerfile: Dockerfile
+    container_name: backend_nest
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    working_dir: /app
+    command: sh -c "bun install && bun run start:dev"
+    environment:
+      - NEO4J_URI=bolt://neo4j:7687
+      - NEO4J_USER=${NEO4J_USER}
+      - NEO4J_PASSWORD=${NEO4J_PASSWORD}
+      - BACKEND_DB_HOST=${BACKEND_DB_HOST}
+      - DB_PASSWORD=${DB_PASSWORD}
+      - SURREALDB_URL=http://surrealdb:8000/rpc
+      - KEYCLOAK_URL=https://10.10.0.1/auth
+    networks:
+      - dev_net
+      - storage_net
+      - auth_net
+      - siem_net
+    ports:
+      - "3000:3000" # Map to host so Nginx can see the API
+    volumes:
+      - /srv/hserverdir-data/backend_source:/app:Z
+      - /srv/hserverdir-data/cloud_data:/app/uploads:Z
+      - /srv/hserverdir-data/savepoints:/app/savepoints:Z
+
+  # --- METRICS (Prometheus + Grafana) ---
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--web.external-url=https://10.10.0.1/prometheus/'
+      - '--web.route-prefix=/'  # Matches your log's current prefix
+    ports:
+      - "9090:9090"
+    networks:
+      siem_net:
+        ipv4_address: 172.34.0.10
+    volumes:
+      - /srv/hserverdir-data/prometheus:/etc/prometheus
+      - prometheus_data:/prometheus
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - GF_SERVER_ROOT_URL=https://10.10.0.1:8446/
+      - GF_SERVER_ENFORCE_DOMAIN=false
+      - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
+      - GF_SERVER_PROTOCOL=http
+    ports:
+      - "3001:3000"
+    networks:
+      siem_net:
+        ipv4_address: 172.34.0.20
+    volumes:
+      - /srv/hserverdir-data/grafana:/var/lib/grafana
+
+  loki:
+    image: grafana/loki:latest
+    container_name: loki
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    volumes:
+      - /srv/hserverdir-data/configs/loki-config.yaml:/etc/loki/local-config.yaml:ro
+      - /srv/hserverdir-data/loki:/loki
+    networks:
+      siem_net:
+        ipv4_address: 172.34.0.30
+
+  frontend_app:
+    build: ./frontend_source
+    container_name: frontend_app
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    working_dir: /app
+    command: sh -c "bun install && bun run dev"
+    volumes:
+      - /srv/hserverdir-data/frontend_source:/app:Z
+    environment:
+      - NEXT_PUBLIC_API_URL=https://10.10.0.1/api
+    networks:
+      - dev_net
+    ports:
+      - "5173:3000" # Map host 5173 to Next.js 3000
+
+  pihole:
+    container_name: pihole
+    image: pihole/pihole:latest
+    # Rootless requires specific user mapping for internal processes
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      TZ: 'America/Chicago'
+      WEBPASSWORD: ${DB_PASSWORD}
+      # Prevents dnsmasq from failing due to lack of root privileges inside
+      DNSMASQ_USER: 'root'
+      FTLCONF_LOCAL_IPV4: ${DB_HOST}
+    volumes:
+      - '/srv/hserverdir-data/pihole/etc-pihole:/etc/pihole:Z'
+      - '/srv/hserverdir-data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d:Z'
+    networks:
+      net_mgmt:
+        ipv4_address: 10.10.0.53
+    ports:
+      # Mapping to high ports to satisfy Rootless restrictions
+      - "5353:53/tcp"
+      - "5353:53/udp"
+      - "8053:80/tcp"
+    restart: unless-stopped
+
+  vscode:
+    profiles: ["groupdev"] #for starting vscode
+    image: codercom/code-server:latest
+    container_name: shared_ide
+    volumes:
+      # This is the folder you just created and fixed permissions for
+      - '/srv/hserverdir-data/projects:/home/coder/project:Z'
+      - '/srv/hserverdir-data/vscode_config:/home/coder/.local/share/code-server:Z'
+    networks:
+      - dev_net
+    ports:
+      - "8444:8080"
+    environment:
+      - PASSWORD= ${VS_SHARE}
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  tor_proxy:
+    profiles: ["ipswap"]
+    image: dperson/torproxy:latest
+    container_name: tor_proxy
+    environment:
+      # Toggle this manually or with the script below
+      - EXITNODE={US}
+    networks:
+      - net_mgmt
+    ports:
+      - "9050:9050"
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  wireguard:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard
+    cap_add:
+      - NET_ADMIN
+      - SYS_MODULE
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+      - SERVERURL=${WIREGUARD_SERVER_URL}   # your DuckDNS domain or public IP
+      - SERVERPORT=51820
+      - PEERS=phone,laptop,tablet            # generates configs for each
+      - PEERDNS=10.10.0.53                   # points to your Pi-hole!
+      - INTERNAL_SUBNET=10.13.13.0
+      - ALLOWEDIPS=0.0.0.0/0                 # route ALL traffic through VPN
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    volumes:
+      - /srv/hserverdir-data/wireguard:/config:Z
+      - /lib/modules:/lib/modules:ro
+    ports:
+      - "51820:51820/udp"
+    networks:
+      net_mgmt:
+        ipv4_address: 10.10.0.2
+    sysctls:
+      - net.ipv4.conf.all.src_valid_mark=1
+    restart: unless-stopped
+
+# DuckDNS IP Updater
+  duckdns:
+    image: lscr.io/linuxserver/duckdns:latest
+    container_name: duckdns
+    environment:
+      - PUID=1000 # Matches your host user ID
+      - PGID=1000 # Matches your host group ID
+      - TZ=America/Chicago
+      - SUBDOMAINS=${DB_USER} # Your DuckDNS subdomain
+      - TOKEN= ${DUCK_TOKEN} # Replace with your DuckDNS token
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: postgres
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      POSTGRES_USER: ${DB_USER}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+      POSTGRES_DB: ${DB_NAME}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data:Z
+    networks:
+      storage_net:
+        ipv4_address: 172.37.0.5
+
+  etherpad:
+    image: etherpad/etherpad:latest
+    container_name: etherpad
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+    environment:
+      - DB_TYPE=${SQL_SERVER}
+      - DB_HOST=${SQL_SERVER}
+      - DB_PORT=5432
+      - DB_NAME=${DB_HOST_NAME}
+      - DB_USER=${DB_USER}
+      - DB_PASS=${DB_PASSWORD}
+      - TRUST_PROXY=true
+    ports:
+      - "9001:9001"
+    volumes:
+      - etherpad_data:/opt/etherpad-lite/var:Z
+    networks:
+      - dev_net
+      - storage_net
+    depends_on:
+      - postgres
+
+networks:
+  siem_net:
+    driver: bridge
+    name: siem_bridge
+    driver_opts:
+      com.docker.network.bridge.name: "brv3-siem"
+    ipam:
+      config:
+        - subnet: 172.34.0.0/16
+  auth_net:
+    driver: bridge
+    name: auth_bridge
+    driver_opts:
+      com.docker.network.bridge.name: "brv3-auth"
+    ipam:
+      config:
+        - subnet: 172.35.0.0/16
+  dev_net:
+    driver: bridge
+    name: dev_bridge
+    driver_opts:
+      com.docker.network.bridge.name: "brv3-dev"
+    ipam:
+      config:
+        - subnet: 172.36.0.0/16
+
+  storage_net:
+    driver: bridge
+    name: storage_bridge
+    driver_opts:
+      com.docker.network.bridge.name: "brv3-storage"
+    ipam:
+      config:
+        - subnet: 172.37.0.0/16
+
+  net_mgmt: # Add this new management bridge
+    driver: bridge
+    ipam:
+      config:
+        - subnet: 10.10.0.0/24
+
+
+volumes:
+  jenkins_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/jenkins
+  surrealdb_data:
+  keydb_data:
+  meilisearch_data:
+  prometheus_data:
+  pihole_etc:
+  pihole_dnsmasq:
+  vscode_config:
+  shared_projects:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/projects
+  postgres_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/postgres_data
+  etherpad_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/etherpad_data
+  keycloak_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/keycloak_data
+  mindsdb_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/mindsdb_data
+  neo4j_data:
+    driver: local
+    driver_opts:
+      type: none
+      o: bind
+      device: /srv/hserverdir-data/neo4j_graph

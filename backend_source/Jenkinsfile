@@ -1,0 +1,70 @@
+pipeline {
+    agent {
+        dockerfile {
+            filename 'Dockerfile'
+            // Maps the socket so your test container can talk to the Docker engine
+            args '-v /var/run/docker.sock:/var/run/docker.sock -u root'
+        }
+    }
+    
+    environment {
+        // Strategy B: Mock variables to protect your 1.8TB SSD secrets
+        NODE_ENV = 'test'
+        DB_HOST  = 'postgres'
+        DB_USER  = 'sylar546'
+        DB_NAME  = 'hserver_master'
+    }
+
+    stages {
+        stage('Parallel Security & Install') {
+            parallel {
+                stage('Backend Setup') {
+                    steps {
+                        dir('backend_source') {
+                            sh 'bun install'
+                            sh 'trivy fs --severity HIGH,CRITICAL .'
+                        }
+                    }
+                }
+                stage('Frontend Setup') {
+                    steps {
+                        dir('frontend_source') {
+                            // This runs inside the same container for consistency
+                            sh 'bun install'
+                            sh 'trivy fs --severity HIGH,CRITICAL .'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('TDD: Run Unit Tests (Jest/Bun)') {
+            parallel {
+                stage('Backend Tests') {
+                    steps {
+                        dir('backend_source') {
+                            // Testing Raw SQL/Cypher logic against Strategy B mocks
+                            sh 'bun test --passWithNoTests'
+                        }
+                    }
+                }
+                stage('Frontend Tests') {
+                    steps {
+                        dir('frontend_source') {
+                            // Testing D3.js/React logic
+                            sh 'bun test --passWithNoTests'
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Build & Git Tag') {
+            steps {
+                script {
+                    sh "git tag -a 'build-${env.BUILD_NUMBER}' -m 'Passed TDD & Trivy Scan'"
+                }
+            }
+        }
+    }
+}
