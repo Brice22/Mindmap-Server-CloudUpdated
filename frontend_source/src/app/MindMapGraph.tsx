@@ -30,7 +30,7 @@ import type { Node, DragState } from '@/lib/types';
 // ============================================================
 // CONSTANTS
 // ============================================================
-const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'; // WebSocket server URL (adjust as needed)
 const DRAG_THRESHOLD = 5;  // Pixels mouse must move to count as drag
 
 // Node colors by type

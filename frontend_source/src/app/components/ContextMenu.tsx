@@ -164,6 +164,17 @@ export default function ContextMenu({
     { label: '✏️ Add Whiteboard', icon: '✏️', action: 'addExcalidraw' },
     { label: '🗺️ Add Map', icon: '🗺️', action: 'addMap', divider: true },
 
+    // === STATUS ===
+    {
+      label: meta.todoStatus === 'done' ? '✅ Mark Incomplete' : meta.todoStatus === 'in-progress' ? '✅ Mark Done' : meta.todoStatus === 'todo' ? '🔄 In Progress' : '☐ Mark To-Do',
+      action: 'cycleTodoStatus',
+      divider: true,
+    },
+    {
+      label: meta.quizEnabled ? '🧪 Remove from Quiz' : '🧪 Add to Quiz Pool',
+      action: 'toggleQuizEnabled',
+    },
+
     // === DANGER ZONE ===
     { label: '🗑️ Delete Node', icon: '🗑️', action: 'delete', danger: true },
   ];

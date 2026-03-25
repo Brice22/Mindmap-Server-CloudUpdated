@@ -53,6 +53,16 @@ export interface NodeMetadata {
   pinned?: boolean;       // Keep visible even when parent collapsed
   alwaysVisible?: boolean; // Never auto-hide
   
+  tags?: string[];         // Tags for AI quizzing, search, categorization
+  quizEnabled?: boolean;   // Flag this node for quiz generation
+  todoStatus?: 'none' | 'todo' | 'in-progress' | 'done';
+  lessonPlan?: {
+    subject: string;
+    objectives: string[];
+    resources: string[];
+    order: number;
+  };
+  
   // Annotations (for drawing on images)
   annotations?: Annotation[];
   

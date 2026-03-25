@@ -36,6 +36,12 @@ import BookmarkPanel from './components/BookmarkPanel';
 import UnifiedSearchBar from './components/UnifiedSearchBar';
 import CalendarView from './components/CalendarView';
 import MindmapHub from './components/MindmapHub';
+import FinanceView from './components/FinanceView';
+import SchedulerView from './components/SchedulerView';
+import HealthView from './components/HealthView';
+import NewsfeedView from './components/NewsfeedView';
+import QuizCenter from './components/QuizCenter';
+import NetworkPanel from './components/NetworkPanel';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection } from '@/lib/types';
 
 // ============================================================
@@ -44,7 +50,7 @@ import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollecti
 // In production, this comes from environment variable.
 // The /api prefix is handled by nginx routing.
 // ============================================================
-const API_URL = process.env.NEXT_PUBLIC_API_URL || '';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 // ============================================================
 // MAIN COMPONENT
@@ -379,6 +385,23 @@ export default function Dashboard() {
           setBookmarks(prev => prev.filter(b => b.nodeId !== node.id));
         }
         break;
+   
+        case 'cycleTodoStatus': {
+        const statusCycle: Record<string, string> = {
+          'none': 'todo', 'undefined': 'todo', 'todo': 'in-progress', 'in-progress': 'done', 'done': 'none'
+        };
+        const current = meta.todoStatus || 'none';
+        await updateNode(node.id, {
+          metadata: { ...meta, todoStatus: statusCycle[current] || 'todo' },
+        } as any);
+        break;
+      }
+
+      case 'toggleQuizEnabled':
+        await updateNode(node.id, {
+          metadata: { ...meta, quizEnabled: !meta.quizEnabled },
+        } as any);
+        break;
 
       case 'delete':
         await deleteNode(node.id);
@@ -698,10 +721,12 @@ export default function Dashboard() {
 
           {/* SCHEDULER VIEW */}
           {activeView === 'scheduler' && (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-              <h2 style={{ color: '#fff' }}>Scheduler / Itinerary</h2>
-              <p>Drag calendar events to build your schedule. Coming soon.</p>
-            </div>
+            <SchedulerView
+              events={calendarEvents}
+              onAddEvent={(ev) => setCalendarEvents(prev => [...prev, ev])}
+              onDeleteEvent={(id) => setCalendarEvents(prev => prev.filter(e => e.id !== id))}
+              onUpdateEvent={(id, updates) => setCalendarEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e))}
+            />
           )}
 
           {/* MIND MAP VIEW */}
@@ -716,28 +741,42 @@ export default function Dashboard() {
 
          {/* FINANCE VIEW */}
           {activeView === 'finance' && (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-              <h2 style={{ color: '#fff' }}>Finance Analysis & Planning</h2>
-              <p>Budget tracking, investment analysis, and financial planning. Coming soon.</p>
-            </div>
+            <FinanceView
+              onAddToCalendar={(title, date, color) => {
+                setCalendarEvents(prev => [...prev, { id: `fin-${Date.now()}`, title, start: date, color }]);
+              }}
+            />
           )}
 
           {/* NEWSFEED VIEW */}
           {activeView === 'newsfeed' && (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-              <h2 style={{ color: '#fff' }}>Custom Newsfeed</h2>
-              <p>Curated news from your selected sources. Coming soon.</p>
-            </div>
+            <NewsfeedView
+              onSaveToMindmap={(title, url) => {
+                createNode({ name: title, description: url, type: 'concept', parent: '' });
+              }}
+            />
           )}
 
           {/* QUIZ CENTER VIEW */}
           {activeView === 'quiz' && (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-              <h2 style={{ color: '#fff' }}>Quiz / Study Center</h2>
-              <p>Test your knowledge from mindmap concepts. Anki-style spaced repetition. Coming soon.</p>
-            </div>
+            <QuizCenter
+              nodes={nodes}
+              onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
+            />
           )}
         </div>
+
+        {activeView === 'health' && (
+            <HealthView
+              onAddToCalendar={(title, date, color) => {
+                setCalendarEvents(prev => [...prev, { id: `health-${Date.now()}`, title, start: date, color }]);
+              }}
+            />
+          )}
+
+          {activeView === 'network' && (
+            <NetworkPanel />
+          )}
 
         {/* Right panel drag handle */}
         {rightPanelOpen && (

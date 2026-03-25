@@ -36,14 +36,10 @@ export default function UnifiedSearchBar({
  
     const timer = setTimeout(async () => {
       try {
-        const res = await fetch(`${API_URL}/search/indexes/nodes/search`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ q: searchQuery, limit: 15 }),
-        });
+        const res = await fetch(`${API_URL}/api/mindmap/search?q=${encodeURIComponent(searchQuery)}`);
         if (res.ok) {
           const data = await res.json();
-          setResults(data.hits || []);
+          setResults(data || []);
           setShowResults(true);
           return;
         }

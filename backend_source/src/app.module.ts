@@ -9,6 +9,8 @@ import { SurrealModule } from './surrealdb/surrealdb.module';
 import { MindsDBModule } from './mindsdb/mindsdb.module';
 import { KeyDBModule } from './keydb/keydb.module';
 import { MetricsModule } from './metrics/metrics.module';
+import { VpnModule } from './vpn/vpn.module';
+import { PiholeModule } from './pihole/pihole.module';
 
 @Module({
   imports: [
@@ -26,6 +28,8 @@ import { MetricsModule } from './metrics/metrics.module';
     MindsDBModule,
     KeyDBModule,
     MetricsModule,
+    VpnModule,
+    PiholeModule,
  ]
 })
 export class AppModule {}

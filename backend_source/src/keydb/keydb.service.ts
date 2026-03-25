@@ -48,7 +48,7 @@ export class KeyDBService implements OnModuleInit, OnModuleDestroy {
   async get(key: string): Promise<string | null> {
     if (!this.connected) return null;
     try {
-      return await this.client.get(key);
+      return await this.client.get(key) || null;
     } catch { return null; }
   }
 
@@ -77,7 +77,7 @@ export class KeyDBService implements OnModuleInit, OnModuleDestroy {
     if (this.connected) {
       try {
         const hit = await this.client.get(key);
-        if (hit) return JSON.parse(hit);
+        if (hit && typeof hit === 'string') return JSON.parse(hit);
       } catch {}
     }
 

@@ -55,6 +55,9 @@ export default function NodeWorkspace({
   ]);
   const [isFullscreen, setIsFullscreen] = useState(false);
 
+  const [draggedPanel, setDraggedPanel] = useState<string | null>(null);
+  const [dragOverPanel, setDragOverPanel] = useState<string | null>(null);
+
   // Parse metadata
   const meta = typeof node.metadata === 'string'
     ? JSON.parse(node.metadata)
@@ -374,12 +377,41 @@ export default function NodeWorkspace({
           return (
             <div
               key={panel.id}
+              draggable
+              onDragStart={(e) => {
+                setDraggedPanel(panel.id);
+                e.dataTransfer.effectAllowed = 'move';
+              }}
+              onDragOver={(e) => {
+                e.preventDefault();
+                setDragOverPanel(panel.id);
+              }}
+              onDragLeave={() => setDragOverPanel(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                if (draggedPanel && draggedPanel !== panel.id) {
+                  setPanels(prev => {
+                    const newPanels = [...prev];
+                    const fromIdx = newPanels.findIndex(p => p.id === draggedPanel);
+                    const toIdx = newPanels.findIndex(p => p.id === panel.id);
+                    const [moved] = newPanels.splice(fromIdx, 1);
+                    newPanels.splice(toIdx, 0, moved);
+                    return newPanels;
+                  });
+                }
+                setDraggedPanel(null);
+                setDragOverPanel(null);
+              }}
+              onDragEnd={() => { setDraggedPanel(null); setDragOverPanel(null); }}
               style={{
                 flex: maximizedPanel ? 1 : `0 0 ${panel.width}%`,
                 display: 'flex',
                 flexDirection: 'column',
                 borderRight: index < panels.length - 1 ? '1px solid #333' : 'none',
                 overflow: 'hidden',
+                opacity: draggedPanel === panel.id ? 0.5 : 1,
+                borderLeft: dragOverPanel === panel.id && draggedPanel !== panel.id ? '3px solid #0070f3' : 'none',
+                transition: 'opacity 0.2s',
               }}
             >
               {/* Panel Header */}
@@ -393,7 +425,8 @@ export default function NodeWorkspace({
                   borderBottom: '1px solid #444',
                 }}
               >
-                <span style={{ color: '#ccc', fontSize: '12px' }}>
+                <span style={{ color: '#ccc', fontSize: '12px', cursor: 'grab', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                  <span style={{ color: '#555', fontSize: '10px' }}>⠿</span>
                   {panel.title}
                 </span>
                 <div style={{ display: 'flex', gap: '4px' }}>

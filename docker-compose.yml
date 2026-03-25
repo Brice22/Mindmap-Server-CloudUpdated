@@ -268,6 +268,7 @@ services:
       - /srv/hserverdir-data/backend_source:/app:Z
       - /srv/hserverdir-data/cloud_data:/app/uploads:Z
       - /srv/hserverdir-data/savepoints:/app/savepoints:Z
+      - /srv/hserverdir-data/wireguard:/app/vpn-configs:ro
 
   # --- METRICS (Prometheus + Grafana) ---
   prometheus:
