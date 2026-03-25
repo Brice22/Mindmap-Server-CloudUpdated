@@ -111,7 +111,7 @@ return result.rows[0];
     try {
       const results = await this.client.index('nodes').search(query, { limit: 20 });
       return results.hits;
-    } catch {
+    } catch (e: any) {
       const sql = `SELECT * FROM mindmap_nodes WHERE name ILIKE $1 OR description ILIKE $1 LIMIT 20`;
       const result = await this.db.query(sql, [`%${query}%`]);
       return result.rows;

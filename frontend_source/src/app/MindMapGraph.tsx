@@ -292,6 +292,18 @@ export default function MindMapGraph({
       .attr('stroke-width', 2)
       .attr('stroke-opacity', 0.6);
 
+  // Right-click edge to edit relationship
+    edgeGroups.on('contextmenu', function(event: any, d: any) {
+      event.preventDefault();
+      event.stopPropagation();
+      const sourceNode = filteredData.find(n => n.id === d.source);
+      if (sourceNode) {
+        callbacksRef.current.onNodeClick(sourceNode);
+        // Trigger editLinkText via a custom event
+        window.dispatchEvent(new CustomEvent('editLinkText', { detail: sourceNode }));
+      }
+    });
+
     // Draw edge labels
     edgeGroups.append('text')
       .attr('x', d => {
@@ -524,8 +536,8 @@ export default function MindMapGraph({
     // --------------------------------------------------------
     svg.on('click', () => {
       // Reset all photos and opacity when clicking background
-      container.selectAll('.node-photo').style('display', 'none');
-      container.selectAll('g[id^="node-group-"]').style('opacity', 1);
+      callbacksRef.current.onNodeClick({ id: 0, name: '', description: '', metadata: {}, x: 0, y: 0 } as any);
+
     });
 
   }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent]);

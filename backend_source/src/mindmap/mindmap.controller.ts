@@ -39,7 +39,7 @@ export class MindmapController {
   @Delete('node/:id')
   async removeNode(@Param('id') id: string) {
     return await this.mindmapService.deleteNode(Number(id));
-}
+  }
 
 // --- SEARCH via MeiliSearch ---
 @Get('search')

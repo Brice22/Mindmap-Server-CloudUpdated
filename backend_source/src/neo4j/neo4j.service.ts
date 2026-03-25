@@ -25,4 +25,18 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
       await session.close();
     }
   }
+
+  async read(cypher: string, params: any) {
+    const session = this.driver.session({ defaultAccessMode: neo4j.session.READ });
+    try {
+      return await session.run(cypher, params);
+    } finally {
+      await session.close();
+    }
+  }
+   async onModuleDestroy() {
+    if (this.driver) {
+      await this.driver.close();
+    }
+  }
 }

@@ -140,6 +140,16 @@ export default function Dashboard() {
     fetchNodes();
   }, [fetchNodes]);
 
+  // Listen for edge right-click
+  useEffect(() => {
+    const handler = (e: any) => {
+      const node = e.detail;
+      if (node) setModal({ visible: true, mode: 'editLinkText', node });
+    };
+    window.addEventListener('editLinkText', handler);
+    return () => window.removeEventListener('editLinkText', handler);
+  }, []);
+
 
   // ============================================================
   // CREATE NODE
@@ -584,39 +594,18 @@ export default function Dashboard() {
             <>
               {activeTab?.type === 'graph' && (
                 <>
-                  {/* Filters */}
-                  <div
-                    style={{
-                      padding: '10px',
-                      background: '#252526',
-                      borderBottom: '1px solid #333',
-                      display: 'flex',
-                      gap: '10px',
-                      alignItems: 'center',
-                    }}
-                  >
-                    <span style={{ fontWeight: 'bold', color: 'white' }}>Filters:</span>
-                    {['all', 'person', 'medical', 'concept', 'location'].map(f => (
-                      <button
-                        key={f}
-                        onClick={() => setFilterType(f)}
-                        style={{
-                          background: filterType === f ? '#0070f3' : '#333',
-                          color: 'white',
-                          border: 'none',
-                          padding: '5px 10px',
-                          borderRadius: '4px',
-                          cursor: 'pointer',
-                          textTransform: 'capitalize',
-                        }}
-                      >
-                        {f}
-                      </button>
-                    ))}
-                  </div>
+                  
 
                   {/* Graph */}
-                  <div style={{ flex: 1, position: 'relative' }}>
+                  <div style={{ flex: 1, position: 'relative' }}
+                    onContextMenu={(e) => {
+                      // Only if clicking the background (not a node)
+                      if ((e.target as HTMLElement).tagName === 'svg' || (e.target as HTMLElement).closest('svg') === e.target) {
+                        e.preventDefault();
+                        setModal({ visible: true, mode: 'create' });
+                      }
+                    }}
+                  >
                     {isLoading ? (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%' }}>
                         <span>Loading...</span>
