@@ -8,6 +8,7 @@ import {
 import { Server, Socket } from 'socket.io';
 import { Inject, forwardRef } from '@nestjs/common'; // <--- Import these
 import { MindmapService } from './mindmap.service';
+import { KeyDBService } from '../keydb/keydb.service';
 
 @WebSocketGateway({
   path: '/socket.io/',
@@ -20,14 +21,19 @@ export class MindmapGateway {
 
   constructor(
        @Inject(forwardRef(() => MindmapService))
-       private readonly mindmapService: MindmapService) {console.log("DEBUG: MindmapGateway initialized.");}
+       private readonly mindmapService: MindmapService,
+       @Inject(KeyDBService)
+       private readonly cache: KeyDBService
+  ) {console.log("DEBUG: MindmapGateway initialized.");}
 
   @SubscribeMessage('node_move')
-  handleNodeMove(
+  async handleNodeMove(
     @MessageBody() data: { id: string; x: number; y: number },
     @ConnectedSocket() client: Socket,
   ) {
     client.broadcast.emit('node_moved', data);
+    await this.cache.bufferNodePosition(Number(data.id), data.x, data.y);
+
   }
 
   @SubscribeMessage('node_drag_end')

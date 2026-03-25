@@ -7,6 +7,7 @@ import { MindmapModule } from './mindmap/mindmap.module';
 import { FamilyModule } from './family/family.module';
 import { SurrealModule } from './surrealdb/surrealdb.module';
 import { MindsDBModule } from './mindsdb/mindsdb.module';
+import { KeyDBModule } from './keydb/keydb.module';
 
 @Module({
   imports: [
@@ -21,5 +22,8 @@ import { MindsDBModule } from './mindsdb/mindsdb.module';
     FamilyModule,
     SurrealModule,
     MindsDBModule,
- ])
+    MindsDBModule,
+    KeyDBModule,
+ ],
+})
 export class AppModule {}

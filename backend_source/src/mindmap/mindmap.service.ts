@@ -4,6 +4,7 @@ import { Neo4jService } from '../neo4j/neo4j.service';
 import { MeiliSearch } from 'meilisearch';
 import { SurrealService } from '../surrealdb/surreal.service';
 import { MindsDBService } from '../mindsdb/mindsdb.service';
+import { KeyDBService } from '../keydb/keydb.service';
 
 @Injectable()
 export class MindmapService {
@@ -15,6 +16,7 @@ export class MindmapService {
     @Inject(Neo4jService) private readonly neo4j: Neo4jService,
     @Inject(SurrealService) private readonly surreal: SurrealService,
     @Inject(MindsDBService) private readonly mindsdb: MindsDBService,
+    @Inject(KeyDBService) private readonly keydb: KeyDBService,
   ) {}
 
   async syncRelationship(childId: number, parentName: string) {
@@ -33,12 +35,16 @@ export class MindmapService {
     await this.db.query("DELETE FROM mindmap_nodes WHERE id = $1", [id]);
     await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id });
     await this.client.index("nodes").deleteDocument(id.toString());
+    await this.cache.invalidateNodeCache();
     return { success: true };
   }
+
   async findAll() {
-    const sql = `SELECT * FROM mindmap_nodes ORDER BY id DESC;`;
-    const result = await this.db.query(sql);
-    return result.rows;
+    return await this.cache.cached('cache:all_nodes', 30, async () => {
+      const sql = `SELECT * FROM mindmap_nodes ORDER BY id DESC;`;
+      const result = await this.db.query(sql);
+      return result.rows;
+    });
   }
 
   async createNode(name: string, description: string, type: string, extraMeta: any = {}) {
@@ -64,6 +70,7 @@ export class MindmapService {
     } catch (e: any) {
       this.logger.warn('SurrealDB/MindsDB sync skipped: ' + e.message);
     }
+   await this.cache.invalidateNodeCache();
 
     return result.rows[0];
   }
@@ -102,6 +109,9 @@ try {
 } catch (e: any) {
     console.error("MeiliSearch Sync Failed", e.message); 
 }
+
+await this.cache.invalidateNodeCache();
+
 return result.rows[0];
 }
 
@@ -128,6 +138,21 @@ return result.rows[0];
     ]);
 
     return { id, bookmarked: meta.bookmarked };
+  }
+
+  async generateQuiz(id: number) {
+    const check = await this.db.query('SELECT * FROM mindmap_nodes WHERE id = $1', [id]);
+    if (check.rows.length === 0) return null;
+    const node = check.rows[0];
+    return await this.mindsdb.generateQuiz(node.name, node.description || '');
+  }
+
+  async findSimilar(id: number) {
+    const check = await this.db.query('SELECT metadata FROM mindmap_nodes WHERE id = $1', [id]);
+    if (check.rows.length === 0) return [];
+    const meta = check.rows[0].metadata || {};
+    const tags = meta.tags || [meta.type || 'default'];
+    return await this.surreal.findSimilar(tags);
   }
    
 }
