@@ -5,6 +5,8 @@ import { join } from 'path';
 import { DatabaseModule } from './database/database.module';
 import { MindmapModule } from './mindmap/mindmap.module';
 import { FamilyModule } from './family/family.module';
+import { SurrealModule } from './surrealdb/surrealdb.module';
+import { MindsDBModule } from './mindsdb/mindsdb.module';
 
 @Module({
   imports: [
@@ -17,6 +19,7 @@ import { FamilyModule } from './family/family.module';
     DatabaseModule,
     MindmapModule,
     FamilyModule,
- ],
-})
+    SurrealModule,
+    MindsDBModule,
+ ])
 export class AppModule {}

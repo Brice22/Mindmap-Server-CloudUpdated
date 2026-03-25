@@ -55,6 +55,18 @@ async toggleBookmark(@Param('id') id: string) {
   return await this.mindmapService.toggleBookmark(Number(id));
 }
 
+// --- AI: Generate quiz from node ---
+  @Get('node/:id/quiz')
+  async generateQuiz(@Param('id') id: string) {
+    return await this.mindmapService.generateQuiz(Number(id));
+  }
+
+  // --- AI: Suggest similar nodes ---
+  @Get('node/:id/similar')
+  async findSimilar(@Param('id') id: string) {
+    return await this.mindmapService.findSimilar(Number(id));
+  }
+
   // --- MEDIA UPLOAD ENDPOINT ---
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', {

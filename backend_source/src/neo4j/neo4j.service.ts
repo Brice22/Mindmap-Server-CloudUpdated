@@ -11,8 +11,11 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
   // This connects the "Brain" to the Graph on startup
   onModuleInit() {
     this.driver = neo4j.driver(
-      'bolt://10.10.0.1:7687', 
-      neo4j.auth.basic('neo4j', 'password')
+      this.config.get('NEO4J_URI') || 'bolt://neo4j:7687',
+      neo4j.auth.basic(
+        this.config.get('NEO4J_USER') || 'neo4j',
+        this.config.get('NEO4J_PASSWORD') || 'password'
+      )
     );
   }
 
