@@ -5,6 +5,7 @@ import { MeiliSearch } from 'meilisearch';
 import { SurrealService } from '../surrealdb/surreal.service';
 import { MindsDBService } from '../mindsdb/mindsdb.service';
 import { KeyDBService } from '../keydb/keydb.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 @Injectable()
 export class MindmapService {
@@ -17,6 +18,7 @@ export class MindmapService {
     @Inject(SurrealService) private readonly surreal: SurrealService,
     @Inject(MindsDBService) private readonly mindsdb: MindsDBService,
     @Inject(KeyDBService) private readonly keydb: KeyDBService,
+    @Inject(MetricsService) private readonly metrics: MetricsService,
   ) {}
 
   async syncRelationship(childId: number, parentName: string) {
@@ -36,6 +38,7 @@ export class MindmapService {
     await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id });
     await this.client.index("nodes").deleteDocument(id.toString());
     await this.cache.invalidateNodeCache();
+    this.metrics.nodeDeletions.inc();
     return { success: true };
   }
 
@@ -71,6 +74,7 @@ export class MindmapService {
       this.logger.warn('SurrealDB/MindsDB sync skipped: ' + e.message);
     }
    await this.cache.invalidateNodeCache();
+   this.metrics.nodeCreations.inc();
 
     return result.rows[0];
   }
@@ -116,6 +120,7 @@ return result.rows[0];
 }
 
   async searchNodes(query: string) {
+    this.metrics.searchQueries.inc();
     try {
       const results = await this.client.index('nodes').search(query, { limit: 20 });
       return results.hits;

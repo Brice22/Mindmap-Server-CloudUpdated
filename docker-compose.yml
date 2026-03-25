@@ -289,7 +289,7 @@ services:
       siem_net:
         ipv4_address: 172.34.0.10
     volumes:
-      - /srv/hserverdir-data/prometheus:/etc/prometheus
+      - /srv/hserverdir-data/configs/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheus_data:/prometheus
 
   grafana:

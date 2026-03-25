@@ -8,6 +8,7 @@ import { FamilyModule } from './family/family.module';
 import { SurrealModule } from './surrealdb/surrealdb.module';
 import { MindsDBModule } from './mindsdb/mindsdb.module';
 import { KeyDBModule } from './keydb/keydb.module';
+import { MetricsModule } from './metrics/metrics.module';
 
 @Module({
   imports: [
@@ -24,6 +25,7 @@ import { KeyDBModule } from './keydb/keydb.module';
     MindsDBModule,
     MindsDBModule,
     KeyDBModule,
- ],
+    MetricsModule,
+ ]
 })
 export class AppModule {}

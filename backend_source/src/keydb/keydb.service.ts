@@ -14,6 +14,12 @@ export class KeyDBService implements OnModuleInit, OnModuleDestroy {
     try {
       this.client = createClient({
         url: this.config.get('KEYDB_URL') || 'redis://keydb:6379',
+        socket: {
+          reconnectStrategy: (retries) => {
+            if (retries > 3) return false;
+            return 3000;
+          },
+        },
       });
 
       this.client.on('error', (err) => {

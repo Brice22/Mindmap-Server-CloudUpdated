@@ -9,6 +9,7 @@ import { Server, Socket } from 'socket.io';
 import { Inject, forwardRef } from '@nestjs/common'; // <--- Import these
 import { MindmapService } from './mindmap.service';
 import { KeyDBService } from '../keydb/keydb.service';
+import { MetricsService } from '../metrics/metrics.service';
 
 @WebSocketGateway({
   path: '/socket.io/',
@@ -18,12 +19,22 @@ import { KeyDBService } from '../keydb/keydb.service';
 export class MindmapGateway {
   @WebSocketServer()
   server: Server;
+  afterInit() {
+    this.server.on('connection', () => {
+      this.metrics.wsConnections.inc();
+    });
+    this.server.on('disconnect', () => {
+      this.metrics.wsConnections.dec();
+    });
+  }
 
   constructor(
        @Inject(forwardRef(() => MindmapService))
        private readonly mindmapService: MindmapService,
        @Inject(KeyDBService)
-       private readonly cache: KeyDBService
+       private readonly cache: KeyDBService,
+       @Inject(MetricsService)
+       private readonly metrics: MetricsService
   ) {console.log("DEBUG: MindmapGateway initialized.");}
 
   @SubscribeMessage('node_move')
