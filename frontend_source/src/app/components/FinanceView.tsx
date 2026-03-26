@@ -24,6 +24,7 @@ interface Investment {
 
 interface FinanceViewProps {
   onAddToCalendar: (title: string, date: string, color: string) => void;
+  apiUrl: string;
 }
 
 const CATEGORIES = ['Housing', 'Food', 'Transport', 'Health', 'Education', 'Entertainment', 'Savings', 'Income', 'Other'];
@@ -35,6 +36,26 @@ const CAT_COLORS: Record<string, string> = {
 
 export default function FinanceView({ onAddToCalendar }: FinanceViewProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
+   // Load persisted data
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [txRes, invRes] = await Promise.allSettled([
+          fetch(`${apiUrl}/api/mindmap/transactions`).then(r => r.ok ? r.json() : []),
+          fetch(`${apiUrl}/api/mindmap/investments`).then(r => r.ok ? r.json() : []),
+        ]);
+        if (txRes.status === 'fulfilled') setTransactions(txRes.value.map((t: any) => ({
+          id: t.id, name: t.name, amount: parseFloat(t.amount), category: t.category, date: t.date, type: t.type,
+        })));
+        if (invRes.status === 'fulfilled') setInvestments(invRes.value.map((i: any) => ({
+          id: i.id, symbol: i.symbol, shares: parseFloat(i.shares), buyPrice: parseFloat(i.buy_price),
+          currentPrice: parseFloat(i.current_price), source: i.source, date: i.date, type: i.type,
+        })));
+      } catch {}
+    };
+    load();
+  }, [apiUrl]);
+
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
   const [amount, setAmount] = useState('');
@@ -63,21 +84,28 @@ export default function FinanceView({ onAddToCalendar }: FinanceViewProps) {
     return { invested, current, pl: current - invested };
   };
 
-  const handleAddInvestment = () => {
+ const handleAddInvestment = async () => {
     if (!investSymbol.trim() || !investShares || !investBuyPrice) return;
-    setInvestments(prev => [...prev, {
-      id: Date.now(),
-      symbol: investSymbol.toUpperCase().trim(),
-      shares: parseFloat(investShares),
-      buyPrice: parseFloat(investBuyPrice),
-      currentPrice: parseFloat(investCurrentPrice || investBuyPrice),
-      source: investSource,
-      date: investDate,
-      type: investType,
-    }]);
-    setInvestSymbol(''); setInvestShares(''); setInvestBuyPrice('');
-    setInvestCurrentPrice(''); setShowInvestForm(false);
+    const data = {
+      symbol: investSymbol.toUpperCase().trim(), shares: parseFloat(investShares),
+      buyPrice: parseFloat(investBuyPrice), currentPrice: parseFloat(investCurrentPrice || investBuyPrice),
+      source: investSource, date: investDate, type: investType,
+    };
+    try {
+      const res = await fetch(`${apiUrl}/api/mindmap/investments`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setInvestments(prev => [...prev, { id: saved.id, ...data }]);
+      }
+    } catch {
+      setInvestments(prev => [...prev, { id: Date.now(), ...data }]);
+    }
+    setInvestSymbol(''); setInvestShares(''); setInvestBuyPrice(''); setInvestCurrentPrice(''); setShowInvestForm(false);
   };
+
+
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
 
@@ -124,26 +152,29 @@ export default function FinanceView({ onAddToCalendar }: FinanceViewProps) {
     return () => { if (chartInstance.current) chartInstance.current.destroy(); };
   }, [transactions, viewMode]);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!name.trim() || !amount) return;
-    const tx: Transaction = {
-      id: Date.now(),
-      name: name.trim(),
-      amount: parseFloat(amount),
-      category,
-      date,
-      type: txType,
+    const txData = {
+      name: name.trim(), amount: parseFloat(amount), category, date, type: txType,
     };
-    setTransactions(prev => [tx, ...prev]);
-    onAddToCalendar(
-      `${txType === 'income' ? '+' : '-'}$${tx.amount} ${tx.name}`,
-      date,
-      txType === 'income' ? '#10b981' : '#ef4444'
-    );
+    try {
+      const res = await fetch(`${apiUrl}/api/mindmap/transactions`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(txData),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setTransactions(prev => [{ id: saved.id, ...txData }, ...prev]);
+      }
+    } catch {
+      setTransactions(prev => [{ id: Date.now(), ...txData }, ...prev]);
+    }
+    onAddToCalendar(`${txType === 'income' ? '+' : '-'}$${txData.amount} ${txData.name}`, date, txType === 'income' ? '#10b981' : '#ef4444');
     setName(''); setAmount(''); setShowForm(false);
   };
 
-  const handleDelete = (id: number) => {
+
+  const handleDelete = async (id: number) => {
+    try { await fetch(`${apiUrl}/api/mindmap/transactions/${id}`, { method: 'DELETE' }); } catch {}
     setTransactions(prev => prev.filter(t => t.id !== id));
   };
 

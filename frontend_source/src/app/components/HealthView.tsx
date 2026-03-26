@@ -13,6 +13,7 @@ interface HealthEntry {
 
 interface HealthViewProps {
   onAddToCalendar: (title: string, date: string, color: string) => void;
+  apiUrl: string;
 }
 
 const HEALTH_TYPES = [
@@ -28,6 +29,24 @@ const HEALTH_TYPES = [
 
 export default function HealthView({ onAddToCalendar }: HealthViewProps) {
   const [entries, setEntries] = useState<HealthEntry[]>([]);
+
+   // Load persisted data
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/mindmap/health`);
+        if (res.ok) {
+          const data = await res.json();
+          setEntries(data.map((e: any) => ({
+            id: e.id, date: e.date, type: e.type, value: parseFloat(e.value),
+            value2: e.value2 ? parseFloat(e.value2) : undefined, notes: e.notes,
+          })));
+        }
+      } catch {}
+    };
+    load();
+  }, [apiUrl]);
+
   const [showForm, setShowForm] = useState(false);
   const [entryType, setEntryType] = useState<HealthEntry['type']>('weight');
   const [value, setValue] = useState('');
@@ -84,24 +103,23 @@ export default function HealthView({ onAddToCalendar }: HealthViewProps) {
     return () => { if (chartInstance.current) chartInstance.current.destroy(); };
   }, [entries, chartType]);
 
-  const handleAdd = () => {
+  const handleAdd = async () => {
     if (!value) return;
-    const entry: HealthEntry = {
-      id: Date.now(),
-      date,
-      type: entryType,
-      value: parseFloat(value),
-      value2: value2 ? parseFloat(value2) : undefined,
-      notes,
-    };
-    setEntries(prev => [entry, ...prev]);
-
+    const data = { date, type: entryType, value: parseFloat(value), value2: value2 ? parseFloat(value2) : undefined, notes };
+    try {
+      const res = await fetch(`${apiUrl}/api/mindmap/health`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setEntries(prev => [{ id: saved.id, ...data } as HealthEntry, ...prev]);
+      }
+    } catch {
+      setEntries(prev => [{ id: Date.now(), ...data } as HealthEntry, ...prev]);
+    }
     const typeInfo = HEALTH_TYPES.find(t => t.id === entryType);
-    const label = entryType === 'bloodpressure'
-      ? `${typeInfo?.icon} ${value}/${value2} mmHg`
-      : `${typeInfo?.icon} ${value} ${typeInfo?.unit}`;
+    const label = entryType === 'bloodpressure' ? `${typeInfo?.icon} ${value}/${value2} mmHg` : `${typeInfo?.icon} ${value} ${typeInfo?.unit}`;
     onAddToCalendar(label, date, typeInfo?.color || '#0070f3');
-
     setValue(''); setValue2(''); setNotes(''); setShowForm(false);
   };
 
@@ -179,7 +197,10 @@ export default function HealthView({ onAddToCalendar }: HealthViewProps) {
                 </div>
                 <div style={{ color: '#666', fontSize: '11px' }}>{entry.date}{entry.notes ? ` · ${entry.notes}` : ''}</div>
               </div>
-              <button onClick={() => setEntries(prev => prev.filter(e => e.id !== entry.id))}
+          <button onClick={async () => {
+                try { await fetch(`${apiUrl}/api/mindmap/health/${entry.id}`, { method: 'DELETE' }); } catch {}
+                setEntries(prev => prev.filter(e => e.id !== entry.id));
+              }}
                 style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
             </div>
           );

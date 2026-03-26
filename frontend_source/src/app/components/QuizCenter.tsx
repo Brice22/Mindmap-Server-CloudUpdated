@@ -33,10 +33,31 @@ type ViewMode = 'deck' | 'quiz' | 'create' | 'stats';
 interface QuizCenterProps {
   nodes: Node[];
   onOpenNode: (node: Node) => void;
+  apiUrl: string;
 }
 
 export default function QuizCenter({ nodes, onOpenNode }: QuizCenterProps) {
   const [cards, setCards] = useState<Flashcard[]>([]);
+
+  // Load persisted flashcards
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const res = await fetch(`${apiUrl}/api/mindmap/flashcards`);
+        if (res.ok) {
+          const data = await res.json();
+          setCards(data.map((c: any) => ({
+            id: String(c.id), question: c.question, answer: c.answer, nodeId: c.node_id,
+            nodeName: c.node_name, difficulty: c.difficulty, interval: c.interval_days,
+            easeFactor: parseFloat(c.ease_factor), nextReview: c.next_review,
+            reviewCount: c.review_count, lastReview: c.last_review,
+          })));
+        }
+      } catch {}
+    };
+    load();
+  }, [apiUrl]);
+  
   const [viewMode, setViewMode] = useState<ViewMode>('deck');
   const [session, setSession] = useState<QuizSession | null>(null);
   const [showCreateForm, setShowCreateForm] = useState(false);

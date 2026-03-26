@@ -109,6 +109,29 @@ export default function Dashboard() {
   const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
   const [leftSidebarWidth, setLeftSidebarWidth] = useState(250);
   const [rightPanelWidth, setRightPanelWidth] = useState(300);
+
+  // Load persisted data on mount
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const [bm, ev, col] = await Promise.allSettled([
+          fetch(`${API_URL}/api/mindmap/bookmarks`).then(r => r.ok ? r.json() : []),
+          fetch(`${API_URL}/api/mindmap/events`).then(r => r.ok ? r.json() : []),
+          fetch(`${API_URL}/api/mindmap/collections`).then(r => r.ok ? r.json() : []),
+        ]);
+        if (bm.status === 'fulfilled') setBookmarks(bm.value.map((b: any) => ({
+          id: String(b.id), nodeId: b.node_id, nodeName: b.node_name, createdAt: b.created_at, color: b.color, group: b.group_name,
+        })));
+        if (ev.status === 'fulfilled') setCalendarEvents(ev.value.map((e: any) => ({
+          id: String(e.id), title: e.title, start: e.start_time, end: e.end_time, nodeId: e.node_id, color: e.color,
+        })));
+        if (col.status === 'fulfilled') setCollections(col.value.map((c: any) => ({
+          id: String(c.id), name: c.name, icon: c.icon, description: c.description, nodeIds: c.node_ids || [], createdAt: c.created_at,
+        })));
+      } catch { /* Backend not available */ }
+    };
+    loadData();
+  }, []);
   // ============================================================
   // FETCH NODES
   // ============================================================
@@ -372,19 +395,30 @@ export default function Dashboard() {
         setWorkspaceNode(node);
         break;
 
-      case 'bookmark':
+      case 'bookmark': {
         const exists = bookmarks.find(b => b.nodeId === node.id);
         if (!exists) {
-          setBookmarks(prev => [...prev, {
-            id: `bm-${Date.now()}`,
-            nodeId: node.id,
-            nodeName: node.name,
-            createdAt: new Date().toISOString(),
-          }]);
+          try {
+            const res = await fetch(`${API_URL}/api/mindmap/bookmarks`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ nodeId: node.id, nodeName: node.name }),
+            });
+            if (res.ok) {
+              const bm = await res.json();
+              setBookmarks(prev => [...prev, { id: String(bm.id), nodeId: bm.node_id, nodeName: bm.node_name, createdAt: bm.created_at }]);
+            }
+          } catch {
+            setBookmarks(prev => [...prev, { id: `bm-${Date.now()}`, nodeId: node.id, nodeName: node.name, createdAt: new Date().toISOString() }]);
+          }
         } else {
+          try {
+            await fetch(`${API_URL}/api/mindmap/bookmarks/${exists.id}`, { method: 'DELETE' });
+          } catch {}
           setBookmarks(prev => prev.filter(b => b.nodeId !== node.id));
         }
         break;
+      }
    
         case 'cycleTodoStatus': {
         const statusCycle: Record<string, string> = {
@@ -564,8 +598,11 @@ export default function Dashboard() {
                       setActiveView('graph');
                     }
                   }}
-                  onRemoveBookmark={(id) => setBookmarks(prev => prev.filter(b => b.id !== id))}
-                />
+                  onRemoveBookmark={async (id) => {
+                    try { await fetch(`${API_URL}/api/mindmap/bookmarks/${id}`, { method: 'DELETE' }); } catch {}
+                    setBookmarks(prev => prev.filter(b => b.id !== id));
+                  }}
+               />
               </div>
             </div>
             {/* Left sidebar drag handle */}
@@ -696,12 +733,21 @@ export default function Dashboard() {
                   if (n) setSelectedNode(n);
                 }
               }}
-              onDateClick={(date) => {
-                setCalendarEvents(prev => [...prev, {
-                  id: `ev-${Date.now()}`,
-                  title: 'New Event',
-                  start: date,
-                }]);
+              onDateClick={async (date) => {
+                const title = 'New Event';
+                try {
+                  const res = await fetch(`${API_URL}/api/mindmap/events`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, start: date }),
+                  });
+                  if (res.ok) {
+                    const ev = await res.json();
+                    setCalendarEvents(prev => [...prev, { id: String(ev.id), title: ev.title, start: ev.start_time, color: ev.color }]);
+                    return;
+                  }
+                } catch {}
+                setCalendarEvents(prev => [...prev, { id: `ev-${Date.now()}`, title, start: date }]);
               }}
             />
           )}
@@ -723,10 +769,36 @@ export default function Dashboard() {
           {activeView === 'scheduler' && (
             <SchedulerView
               events={calendarEvents}
-              onAddEvent={(ev) => setCalendarEvents(prev => [...prev, ev])}
-              onDeleteEvent={(id) => setCalendarEvents(prev => prev.filter(e => e.id !== id))}
-              onUpdateEvent={(id, updates) => setCalendarEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e))}
-            />
+              onAddEvent={async (ev) => {
+                try {
+                  const res = await fetch(`${API_URL}/api/mindmap/events`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title: ev.title, start: ev.start, end: ev.end, color: ev.color }),
+                  });
+                  if (res.ok) {
+                    const saved = await res.json();
+                    setCalendarEvents(prev => [...prev, { id: String(saved.id), title: saved.title, start: saved.start_time, end: saved.end_time, color: saved.color }]);
+                    return;
+                  }
+                } catch {}
+                setCalendarEvents(prev => [...prev, ev]);
+              }}
+              onDeleteEvent={async (id) => {
+                try { await fetch(`${API_URL}/api/mindmap/events/${id}`, { method: 'DELETE' }); } catch {}
+                setCalendarEvents(prev => prev.filter(e => e.id !== id));
+              }}
+              onUpdateEvent={async (id, updates) => {
+                try {
+                  await fetch(`${API_URL}/api/mindmap/events/${id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(updates),
+                  });
+                } catch {}
+                setCalendarEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+              }}
+           />
           )}
 
           {/* MIND MAP VIEW */}
@@ -741,8 +813,20 @@ export default function Dashboard() {
 
          {/* FINANCE VIEW */}
           {activeView === 'finance' && (
-            <FinanceView
-              onAddToCalendar={(title, date, color) => {
+           <FinanceView
+              apiUrl={API_URL}
+              onAddToCalendar={async (title, date, color) => {
+                try {
+                  const res = await fetch(`${API_URL}/api/mindmap/events`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, start: date, color }),
+                  });
+                  if (res.ok) {
+                    const ev = await res.json();
+                    setCalendarEvents(prev => [...prev, { id: String(ev.id), title, start: date, color }]);
+                    return;
+                  }
+                } catch {}
                 setCalendarEvents(prev => [...prev, { id: `fin-${Date.now()}`, title, start: date, color }]);
               }}
             />
@@ -768,7 +852,19 @@ export default function Dashboard() {
 
         {activeView === 'health' && (
             <HealthView
-              onAddToCalendar={(title, date, color) => {
+              apiUrl={API_URL}
+              onAddToCalendar={async (title, date, color) => {
+                try {
+                  const res = await fetch(`${API_URL}/api/mindmap/events`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ title, start: date, color }),
+                  });
+                  if (res.ok) {
+                    const ev = await res.json();
+                    setCalendarEvents(prev => [...prev, { id: String(ev.id), title, start: date, color }]);
+                    return;
+                  }
+                } catch {}
                 setCalendarEvents(prev => [...prev, { id: `health-${Date.now()}`, title, start: date, color }]);
               }}
             />

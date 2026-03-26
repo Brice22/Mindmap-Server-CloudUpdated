@@ -479,6 +479,45 @@ export default function NodeWorkspace({
                 {renderPanelContent(panel)}
               </div>
             </div>
+            {/* Resize handle between panels */}
+            {!maximizedPanel && index < panels.filter(p => !p.minimized).length - 1 && (
+              <div
+                style={{
+                  width: '5px', cursor: 'col-resize', background: '#333',
+                  flexShrink: 0, transition: 'background 0.2s',
+                }}
+                onMouseEnter={(e) => { e.currentTarget.style.background = '#0070f3'; }}
+                onMouseLeave={(e) => { e.currentTarget.style.background = '#333'; }}
+                onMouseDown={(e) => {
+                  const startX = e.clientX;
+                  const panelsCopy = [...panels];
+                  const visiblePanels = panelsCopy.filter(p => !p.minimized);
+                  const leftPanel = visiblePanels[index];
+                  const rightPanel = visiblePanels[index + 1];
+                  const startLeftWidth = leftPanel.width;
+                  const startRightWidth = rightPanel.width;
+
+                  const onMove = (ev: MouseEvent) => {
+                    const containerWidth = (e.currentTarget.parentElement?.clientWidth || 800);
+                    const deltaPercent = ((ev.clientX - startX) / containerWidth) * 100;
+                    const newLeft = Math.max(15, Math.min(85, startLeftWidth + deltaPercent));
+                    const newRight = Math.max(15, Math.min(85, startRightWidth - deltaPercent));
+
+                    setPanels(prev => prev.map(p => {
+                      if (p.id === leftPanel.id) return { ...p, width: newLeft };
+                      if (p.id === rightPanel.id) return { ...p, width: newRight };
+                      return p;
+                    }));
+                  };
+                  const onUp = () => {
+                    document.removeEventListener('mousemove', onMove);
+                    document.removeEventListener('mouseup', onUp);
+                  };
+                  document.addEventListener('mousemove', onMove);
+                  document.addEventListener('mouseup', onUp);
+                }}
+              />
+            )}
           );
         })}
       </div>
