@@ -22,7 +22,7 @@ private _meili: MeiliSearch | null = null;
     @Inject(Neo4jService) private readonly neo4j: Neo4jService,
     @Inject(SurrealService) private readonly surreal: SurrealService,
     @Inject(MindsDBService) private readonly mindsdb: MindsDBService,
-    @Inject(KeyDBService) private readonly keydb: KeyDBService,
+    @Inject(KeyDBService) private readonly cache: KeyDBService,
     @Inject(MetricsService) private readonly metrics: MetricsService,
   ) {}
 

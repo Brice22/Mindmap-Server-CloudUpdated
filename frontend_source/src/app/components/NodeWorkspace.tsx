@@ -375,8 +375,8 @@ export default function NodeWorkspace({
           }
 
           return (
+            <React.Fragment key={panel.id}>
             <div
-              key={panel.id}
               draggable
               onDragStart={(e) => {
                 setDraggedPanel(panel.id);
@@ -518,6 +518,7 @@ export default function NodeWorkspace({
                 }}
               />
             )}
+            </React.Fragment>
           );
         })}
       </div>

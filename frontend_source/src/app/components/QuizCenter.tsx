@@ -36,7 +36,7 @@ interface QuizCenterProps {
   apiUrl: string;
 }
 
-export default function QuizCenter({ nodes, onOpenNode }: QuizCenterProps) {
+export default function QuizCenter({ nodes, onOpenNode, apiUrl }: QuizCenterProps) {
   const [cards, setCards] = useState<Flashcard[]>([]);
 
   // Load persisted flashcards
@@ -125,25 +125,26 @@ export default function QuizCenter({ nodes, onOpenNode }: QuizCenterProps) {
   };
 
   // Create card manually
-  const handleCreateCard = () => {
+  const handleCreateCard = async () => {
     if (!newQuestion.trim() || !newAnswer.trim()) return;
     const node = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null;
-    const card: Flashcard = {
-      id: `fc-${Date.now()}`,
-      question: newQuestion.trim(),
-      answer: newAnswer.trim(),
-      nodeId: selectedNodeId || 0,
-      nodeName: node?.name || 'Unlinked',
-      difficulty: newDifficulty,
-      interval: 0,
-      easeFactor: 2.5,
-      nextReview: today,
-      reviewCount: 0,
-      lastReview: '',
+    const data = {
+      question: newQuestion.trim(), answer: newAnswer.trim(), nodeId: selectedNodeId || 0,
+      nodeName: node?.name || 'Unlinked', difficulty: newDifficulty,
+      interval: 0, easeFactor: 2.5, nextReview: today, reviewCount: 0, lastReview: null,
     };
-    setCards(prev => [...prev, card]);
-    setNewQuestion(''); setNewAnswer(''); setSelectedNodeId(null);
-    setShowCreateForm(false);
+    try {
+      const res = await fetch(`${apiUrl}/api/mindmap/flashcards`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(data),
+      });
+      if (res.ok) {
+        const saved = await res.json();
+        setCards(prev => [...prev, { ...data, id: String(saved.id) } as Flashcard]);
+      }
+    } catch {
+      setCards(prev => [...prev, { ...data, id: `fc-${Date.now()}` } as Flashcard]);
+    }
+    setNewQuestion(''); setNewAnswer(''); setSelectedNodeId(null); setShowCreateForm(false);
   };
 
   // Generate cards from node via MindsDB
@@ -227,25 +228,22 @@ export default function QuizCenter({ nodes, onOpenNode }: QuizCenterProps) {
   };
 
   // Rate card in quiz
-  const rateCard = (rating: number) => {
+  const rateCard = async (rating: number) => {
     if (!session) return;
     const card = session.cards[session.currentIndex];
     const updates = calculateNextReview(card, rating);
 
-    // Update card
-    setCards(prev => prev.map(c => c.id === card.id ? { ...c, ...updates } : c));
-
-    // Record result
-    const newResults = [...session.results, { cardId: card.id, rating }];
-
-    // Next card or finish
-    if (session.currentIndex + 1 < session.cards.length) {
-      setSession({
-        ...session,
-        currentIndex: session.currentIndex + 1,
-        showAnswer: false,
-        results: newResults,
+    // Persist review
+    try {
+      await fetch(`${apiUrl}/api/mindmap/flashcards/${card.id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
       });
+    } catch {}
+
+    setCards(prev => prev.map(c => c.id === card.id ? { ...c, ...updates } : c));
+    const newResults = [...session.results, { cardId: card.id, rating }];
+    if (session.currentIndex + 1 < session.cards.length) {
+      setSession({ ...session, currentIndex: session.currentIndex + 1, showAnswer: false, results: newResults });
     } else {
       setSession({ ...session, results: newResults, showAnswer: false });
       setViewMode('stats');
@@ -394,7 +392,10 @@ export default function QuizCenter({ nodes, onOpenNode }: QuizCenterProps) {
                 }}>
                   {card.difficulty}
                 </span>
-                <button onClick={() => setCards(prev => prev.filter(c => c.id !== card.id))}
+                <button onClick={async () => {
+                  try { await fetch(`${apiUrl}/api/mindmap/flashcards/${card.id}`, { method: 'DELETE' }); } catch {}
+                  setCards(prev => prev.filter(c => c.id !== card.id));
+                }}
                   style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
               </div>
             ))}

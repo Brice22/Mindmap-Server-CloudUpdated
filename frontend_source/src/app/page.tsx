@@ -757,11 +757,26 @@ export default function Dashboard() {
             <MindmapHub
               collections={collections}
               nodes={nodes}
-              onCreateCollection={(col) => setCollections(prev => [...prev, col])}
+              onCreateCollection={async (col) => {
+                try {
+                  const res = await fetch(`${API_URL}/api/mindmap/collections`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(col),
+                  });
+                  if (res.ok) {
+                    const saved = await res.json();
+                    setCollections(prev => [...prev, { ...col, id: String(saved.id) }]);
+                    return;
+                  }
+                } catch {}
+                setCollections(prev => [...prev, col]);
+              }}
               onOpenCollection={(col) => {
                 console.log('Open collection:', col.name, col.nodeIds);
               }}
-              onDeleteCollection={(id) => setCollections(prev => prev.filter(c => c.id !== id))}
+              onDeleteCollection={async (id) => {
+                try { await fetch(`${API_URL}/api/mindmap/collections/${id}`, { method: 'DELETE' }); } catch {}
+                setCollections(prev => prev.filter(c => c.id !== id));
+              }}
             />
           )}
 
@@ -845,6 +860,7 @@ export default function Dashboard() {
           {activeView === 'quiz' && (
             <QuizCenter
               nodes={nodes}
+              apiUrl={API_URL}
               onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
             />
           )}

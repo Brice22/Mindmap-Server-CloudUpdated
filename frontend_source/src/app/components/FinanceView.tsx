@@ -34,7 +34,7 @@ const CAT_COLORS: Record<string, string> = {
   Savings: '#06b6d4', Income: '#10b981', Other: '#6b7280',
 };
 
-export default function FinanceView({ onAddToCalendar }: FinanceViewProps) {
+export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
    // Load persisted data
   useEffect(() => {
@@ -354,7 +354,10 @@ export default function FinanceView({ onAddToCalendar }: FinanceViewProps) {
                     {pl >= 0 ? '+' : ''}${pl.toFixed(2)}
                   </span>
                   <span style={{ color: '#888', fontSize: '11px', textTransform: 'capitalize' }}>{inv.source}</span>
-                  <button onClick={() => setInvestments(prev => prev.filter(i => i.id !== inv.id))}
+                  <button onClick={async () => {
+                    try { await fetch(`${apiUrl}/api/mindmap/investments/${inv.id}`, { method: 'DELETE' }); } catch {}
+                    setInvestments(prev => prev.filter(i => i.id !== inv.id));
+                  }}
                     style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
                 </div>
               );

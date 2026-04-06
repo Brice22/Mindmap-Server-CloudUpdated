@@ -27,7 +27,7 @@ const HEALTH_TYPES = [
   { id: 'vitamins', label: 'Vitamins', icon: '🧬', color: '#f472b6', unit: 'mg' },
 ];
 
-export default function HealthView({ onAddToCalendar }: HealthViewProps) {
+export default function HealthView({ onAddToCalendar, apiUrl }: HealthViewProps) {
   const [entries, setEntries] = useState<HealthEntry[]>([]);
 
    // Load persisted data
