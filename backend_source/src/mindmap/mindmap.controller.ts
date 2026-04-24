@@ -50,10 +50,7 @@ async searchNodes(@Query('q') query: string) {
 // --- BOOKMARKS ---
 // Bookmarks are stored in the node's metadata for simplicity
 // No separate table needed — just flag nodes
-@Put('node/:id/bookmark')
-async toggleBookmark(@Param('id') id: string) {
-  return await this.mindmapService.toggleBookmark(Number(id));
-}
+
 
 // --- AI: Generate quiz from node ---
   @Get('node/:id/quiz')

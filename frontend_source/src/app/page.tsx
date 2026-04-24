@@ -864,7 +864,7 @@ export default function Dashboard() {
               onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
             />
           )}
-        </div>
+        
 
         {activeView === 'health' && (
             <HealthView
@@ -889,6 +889,7 @@ export default function Dashboard() {
           {activeView === 'network' && (
             <NetworkPanel />
           )}
+          </div>
 
         {/* Right panel drag handle */}
         {rightPanelOpen && (

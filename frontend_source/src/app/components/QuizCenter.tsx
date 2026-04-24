@@ -139,10 +139,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl }: QuizCenterProp
       });
       if (res.ok) {
         const saved = await res.json();
-        setCards(prev => [...prev, { ...data, id: String(saved.id) } as Flashcard]);
+        setCards(prev => [...prev, { ...data, id: String(saved.id), lastReview: '' } as Flashcard]);
       }
     } catch {
-      setCards(prev => [...prev, { ...data, id: `fc-${Date.now()}` } as Flashcard]);
+      setCards(prev => [...prev, { ...data, id: `fc-${Date.now()}`, lastReview: '' } as Flashcard]);
     }
     setNewQuestion(''); setNewAnswer(''); setSelectedNodeId(null); setShowCreateForm(false);
   };

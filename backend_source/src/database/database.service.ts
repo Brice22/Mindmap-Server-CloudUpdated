@@ -1,7 +1,6 @@
 import { Injectable, OnModuleInit, OnModuleDestroy, Logger, Inject } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Pool, QueryResult } from 'pg';
-import { MIGRATIONS } from './migrations';
 
 @Injectable()
 export class DatabaseService implements OnModuleInit, OnModuleDestroy {

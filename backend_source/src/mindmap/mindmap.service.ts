@@ -41,7 +41,8 @@ private _meili: MeiliSearch | null = null;
   async deleteNode(id: number) {
     await this.db.query("DELETE FROM mindmap_nodes WHERE id = $1", [id]);
     await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id });
-    await this.client.index("nodes").deleteDocument(id.toString());
+    
+    try { await this.client.index("nodes").deleteDocument(id.toString()); } catch {}
     await this.cache.invalidateNodeCache();
     this.metrics.nodeDeletions.inc();
     return { success: true };
@@ -136,19 +137,7 @@ return result.rows[0];
     }
   }
 
-  async toggleBookmark(id: number) {
-    const check = await this.db.query('SELECT metadata FROM mindmap_nodes WHERE id = $1', [id]);
-    if (check.rows.length === 0) return null;
-
-    const meta = check.rows[0].metadata || {};
-    meta.bookmarked = !meta.bookmarked;
-
-    await this.db.query('UPDATE mindmap_nodes SET metadata = $1 WHERE id = $2', [
-      JSON.stringify(meta), id
-    ]);
-
-    return { id, bookmarked: meta.bookmarked };
-  }
+  
 
   async generateQuiz(id: number) {
     const check = await this.db.query('SELECT * FROM mindmap_nodes WHERE id = $1', [id]);
