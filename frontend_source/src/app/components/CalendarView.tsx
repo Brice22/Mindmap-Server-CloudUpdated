@@ -9,7 +9,7 @@ import type { CalendarEvent, Node } from '@/lib/types';
 interface CalendarViewProps {
   events: CalendarEvent[];
   onEventClick: (event: CalendarEvent) => void;
-  onDateClick: (date: string) => void;
+  onDateClick: (date: string) => void | Promise<void>;
 }
 
 export default function CalendarView({ events, onEventClick, onDateClick }: CalendarViewProps) {

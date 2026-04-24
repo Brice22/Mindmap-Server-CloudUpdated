@@ -94,10 +94,11 @@ export default function MindMapGraph({
     console.log('[MindMapGraph] Connecting to WebSocket...');
     
     // Connect to the mindmap namespace
+    const isLocal = SOCKET_URL.includes('localhost');
     socketRef.current = io(`${SOCKET_URL}/mindmap`, {
-      path: '/mindmap-socket/socket.io/',
+      path: isLocal ? '/socket.io/' : '/mindmap-socket/socket.io/',
       transports: ['websocket'],
-      secure: true,
+      secure: !isLocal,
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -536,7 +537,7 @@ export default function MindMapGraph({
     // --------------------------------------------------------
     svg.on('click', () => {
       // Reset all photos and opacity when clicking background
-      callbacksRef.current.onNodeClick({ id: 0, name: '', description: '', metadata: {}, x: 0, y: 0 } as any);
+      callbacksRef.current.onNodeClick(null as any);
 
     });
 

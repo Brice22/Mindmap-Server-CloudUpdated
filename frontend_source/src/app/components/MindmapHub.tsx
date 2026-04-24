@@ -16,7 +16,7 @@ const DEFAULT_TEMPLATES = [
 
 interface MindmapHubProps {
   collections: MindmapCollection[];
-  onCreateCollection: (collection: MindmapCollection) => void;
+  onCreateCollection: (collection: MindmapCollection) => void | Promise<void>;
   onOpenCollection: (collection: MindmapCollection) => void;
   onDeleteCollection: (id: string) => void;
   nodes: Node[];

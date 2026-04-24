@@ -5,9 +5,9 @@ import type { CalendarEvent } from '@/lib/types';
 
 interface SchedulerViewProps {
   events: CalendarEvent[];
-  onAddEvent: (event: CalendarEvent) => void;
-  onDeleteEvent: (id: string) => void;
-  onUpdateEvent: (id: string, updates: Partial<CalendarEvent>) => void;
+  onAddEvent: (event: CalendarEvent) => void | Promise<void>;
+  onDeleteEvent: (id: string) => void | Promise<void>;
+  onUpdateEvent: (id: string, updates: Partial<CalendarEvent>) => void | Promise<void>;
 }
 
 const TIME_SLOTS = Array.from({ length: 24 }, (_, i) => {

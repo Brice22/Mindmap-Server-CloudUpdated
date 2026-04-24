@@ -254,7 +254,11 @@ services:
       - NEO4J_USER=${NEO4J_USER}
       - NEO4J_PASSWORD=${NEO4J_PASSWORD}
       - BACKEND_DB_HOST=${BACKEND_DB_HOST}
+      - DB_USER=${DB_USER}
       - DB_PASSWORD=${DB_PASSWORD}
+      - DB_NAME=${DB_NAME}
+      - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
+      - KEYDB_URL=redis://keydb:6379
       - SURREALDB_URL=http://surrealdb:8000/rpc
       - KEYCLOAK_URL=https://10.10.0.1/auth
     networks:
@@ -308,7 +312,7 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=${GF_SECURITY_ADMIN_PASSWORD}
       - GF_SERVER_PROTOCOL=http
     ports:
-      - "3001:3000"
+      - "3002:3000"
     networks:
       siem_net:
         ipv4_address: 172.34.0.20
@@ -351,7 +355,7 @@ services:
     networks:
       - dev_net
     ports:
-      - "5173:3000" # Map host 5173 to Next.js 3000
+      - "5173:3001" # Map host 5173 to Next.js 3000
 
   pihole:
     container_name: pihole
@@ -394,7 +398,7 @@ services:
     ports:
       - "8444:8080"
     environment:
-      - PASSWORD= ${VS_SHARE}
+      - PASSWORD=${VS_SHARE}
     restart: unless-stopped
     logging:
       driver: json-file
@@ -462,7 +466,7 @@ services:
       - PGID=1000 # Matches your host group ID
       - TZ=America/Chicago
       - SUBDOMAINS=${DB_USER} # Your DuckDNS subdomain
-      - TOKEN= ${DUCK_TOKEN} # Replace with your DuckDNS token
+      - TOKEN=${DUCK_TOKEN} # Replace with your DuckDNS token
     restart: unless-stopped
     logging:
       driver: json-file

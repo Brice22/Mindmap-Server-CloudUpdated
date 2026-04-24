@@ -306,7 +306,11 @@ export default function Dashboard() {
   // ============================================================
   // GRAPH EVENT HANDLERS
   // ============================================================
-  const handleNodeClick = (node: Node) => {
+  const handleNodeClick = (node: Node | null) => {
+    if (!node || !node.id) {
+      setSelectedNode(null);
+      return;
+    }
     console.log('[Dashboard] Node clicked:', node.name);
     setSelectedNode(node);
     if (!rightPanelOpen) setRightPanelOpen(true);
@@ -659,6 +663,7 @@ export default function Dashboard() {
                   {/* Graph */}
                   <div style={{ flex: 1, position: 'relative' }}
                     onContextMenu={(e) => {
+                      const target = e.target as HTMLElement;
                       // Only if clicking the background (not a node)
                       if ((e.target as HTMLElement).tagName === 'svg' || (e.target as HTMLElement).closest('svg') === e.target) {
                         e.preventDefault();

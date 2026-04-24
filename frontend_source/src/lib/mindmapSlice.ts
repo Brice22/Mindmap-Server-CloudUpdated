@@ -2,8 +2,9 @@ import { createSlice, createAsyncThunk } from '@reduxjs/toolkit';
 
 // This Thunk talks to your NestJS GraphQL Resolver
 export const fetchGraph = createAsyncThunk('mindmap/fetchGraph', async () => {
-  const response = await fetch('https://10.10.0.1/graphql', {
-    method: 'POST',
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+const response = await fetch(`${API_URL}/graphql`, {
+  method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       query: `{ getGraphData { nodes { id name } links { source target } } }`

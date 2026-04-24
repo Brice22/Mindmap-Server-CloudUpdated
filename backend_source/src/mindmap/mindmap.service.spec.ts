@@ -30,7 +30,7 @@ describe('MindmapService', () => {
 
   it('should call database query when creating a node', async () => {
     // Using the actual method name from your service
-    await service.createNode('Sylar', 'Test Description', {});
+    await service.createNode('Sylar', 'Test Description', 'default', {});
     expect(mockDb.query).toHaveBeenCalled();
   });
 });

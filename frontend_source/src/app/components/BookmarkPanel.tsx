@@ -6,7 +6,7 @@ import type { Node, Bookmark } from '@/lib/types';
 interface BookmarkPanelProps {
   bookmarks: Bookmark[];
   onSelectNode: (nodeId: number) => void;
-  onRemoveBookmark: (bookmarkId: string) => void;
+  onRemoveBookmark: (bookmarkId: string) => void | Promise<void>;
 }
 
 export default function BookmarkPanel({ bookmarks, onSelectNode, onRemoveBookmark }: BookmarkPanelProps) {
