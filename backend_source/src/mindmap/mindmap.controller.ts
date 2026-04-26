@@ -133,12 +133,23 @@ async searchNodes(@Query('q') query: string) {
   addNewsSource(@Body() body: any) { return this.mindmapService.addNewsSource(body); }
   @Delete('news/sources/:id')
   deleteNewsSource(@Param('id') id: string) { return this.mindmapService.deleteNewsSource(Number(id)); }
+  @Put('news/sources/:id')
+  updateNewsSource(@Param('id') id: string, @Body() body: any) { return this.mindmapService.updateNewsSource(Number(id), body); }
   @Get('news/articles')
   getSavedArticles(@Query('filter') filter: string) { return this.mindmapService.getSavedArticles(filter); }
   @Post('news/articles')
   saveArticle(@Body() body: any) { return this.mindmapService.saveArticle(body); }
   @Put('news/articles/:id')
   updateArticle(@Param('id') id: string, @Body() body: any) { return this.mindmapService.updateArticle(Number(id), body); }
+ 
+  @Post('news/fetch')
+  fetchAllFeeds() { return this.mindmapService.fetchAllFeeds(); }
+
+  @Post('news/seed')
+  seedDefaultSources() { return this.mindmapService.seedDefaultSources(); }
+
+  @Delete('news/articles/cleanup')
+  cleanupOldArticles() { return this.mindmapService.cleanupOldArticles(7); }
 
   // --- MEDIA UPLOAD ENDPOINT ---
   @Post('upload')

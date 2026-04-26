@@ -24,7 +24,8 @@ private _meili: MeiliSearch | null = null;
     @Inject(MindsDBService) private readonly mindsdb: MindsDBService,
     @Inject(KeyDBService) private readonly cache: KeyDBService,
     @Inject(MetricsService) private readonly metrics: MetricsService,
-  ) {}
+  ) { // Seed default news sources on first startup
+    setTimeout(() => this.seedDefaultSources().catch(() => {}), 5000);}
 
   async syncRelationship(childId: number, parentName: string) {
       const parentRes = await this.db.query("SELECT id FROM mindmap_nodes WHERE lower(name) = lower($1)", [parentName]);
@@ -347,4 +348,182 @@ return result.rows[0];
     return result.rows[0];
   }
    
+  // === RSS FEED FETCHING ===
+  private parseRSSItems(xml: string, sourceName: string, category: string): any[] {
+    const items: any[] = [];
+    const itemRegex = /<item>([\s\S]*?)<\/item>/g;
+    const entryRegex = /<entry>([\s\S]*?)<\/entry>/g;
+    
+    const getTag = (block: string, tag: string): string => {
+      // Handle CDATA
+      const cdataMatch = block.match(new RegExp(`<${tag}[^>]*><!\\[CDATA\\[([\\s\\S]*?)\\]\\]></${tag}>`));
+      if (cdataMatch) return cdataMatch[1].trim();
+      const match = block.match(new RegExp(`<${tag}[^>]*>([\\s\\S]*?)</${tag}>`));
+      return match ? match[1].replace(/<[^>]+>/g, '').trim() : '';
+    };
+
+    const getAttr = (block: string, tag: string, attr: string): string => {
+      const match = block.match(new RegExp(`<${tag}[^>]*${attr}="([^"]*)"[^>]*/?>`, 'i'));
+      return match ? match[1].trim() : '';
+    };
+
+    // Try RSS 2.0 <item> format
+    let match;
+    while ((match = itemRegex.exec(xml)) !== null) {
+      const block = match[1];
+      const title = getTag(block, 'title');
+      const link = getTag(block, 'link');
+      const desc = getTag(block, 'description');
+      const pubDate = getTag(block, 'pubDate') || getTag(block, 'dc:date');
+      if (title && link) {
+        items.push({ title, url: link, description: desc.slice(0, 300), source: sourceName, category, date: pubDate || new Date().toISOString() });
+      }
+    }
+
+    // Try Atom <entry> format if no items found
+    if (items.length === 0) {
+      while ((match = entryRegex.exec(xml)) !== null) {
+        const block = match[1];
+        const title = getTag(block, 'title');
+        const link = getAttr(block, 'link', 'href') || getTag(block, 'link');
+        const desc = getTag(block, 'summary') || getTag(block, 'content');
+        const pubDate = getTag(block, 'published') || getTag(block, 'updated');
+        if (title && link) {
+          items.push({ title, url: link, description: desc.replace(/<[^>]+>/g, '').slice(0, 300), source: sourceName, category, date: pubDate || new Date().toISOString() });
+        }
+      }
+    }
+
+    return items;
+  }
+
+  private async fetchHackerNews(): Promise<any[]> {
+    try {
+      const res = await fetch('https://hn.algolia.com/api/v1/search_by_date?tags=front_page&hitsPerPage=30');
+      if (!res.ok) return [];
+      const data = await res.json();
+      return (data.hits || []).map((hit: any) => ({
+        title: hit.title || 'Untitled',
+        url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
+        description: (hit.comment_text || '').slice(0, 300),
+        source: 'Hacker News',
+        category: 'Tech',
+        date: hit.created_at || new Date().toISOString(),
+      }));
+    } catch { return []; }
+  }
+
+  async fetchAllFeeds(): Promise<{ fetched: number; sources: number }> {
+    const sourcesResult = await this.db.query('SELECT * FROM newsfeed_sources WHERE enabled = true');
+    const sources = sourcesResult.rows;
+    let totalFetched = 0;
+
+    for (const source of sources) {
+      try {
+        let articles: any[] = [];
+
+        if (source.type === 'hackernews') {
+          articles = await this.fetchHackerNews();
+        } else {
+          // RSS/Atom feed
+          const res = await fetch(source.url, {
+            headers: { 'User-Agent': 'HServer-Newsfeed/1.0' },
+            signal: AbortSignal.timeout(10000),
+          });
+          if (!res.ok) continue;
+          const xml = await res.text();
+          articles = this.parseRSSItems(xml, source.name, source.category || 'All');
+        }
+
+        // Insert new articles (skip duplicates by URL)
+        for (const article of articles) {
+          try {
+            await this.db.query(
+              `INSERT INTO saved_articles (title, description, url, source, category, date)
+               SELECT $1, $2, $3, $4, $5, $6
+               WHERE NOT EXISTS (SELECT 1 FROM saved_articles WHERE url = $3)`,
+              [article.title, article.description, article.url, article.source || source.name, article.category || source.category, article.date]
+            );
+            totalFetched++;
+          } catch { /* duplicate or DB error, skip */ }
+        }
+      } catch (e: any) {
+        this.logger.warn(`Feed fetch failed for ${source.name}: ${e.message}`);
+      }
+    }
+
+    // Buffer cleanup: keep only last 200 non-saved articles per source
+    await this.db.query(`
+      DELETE FROM saved_articles WHERE id IN (
+        SELECT id FROM (
+          SELECT id, ROW_NUMBER() OVER (PARTITION BY source ORDER BY created_at DESC) as rn
+          FROM saved_articles WHERE saved = false AND archived = false
+        ) ranked WHERE rn > 200
+      )
+    `);
+
+    return { fetched: totalFetched, sources: sources.length };
+  }
+
+  async seedDefaultSources(): Promise<void> {
+    const existing = await this.db.query('SELECT COUNT(*) as count FROM newsfeed_sources');
+    if (parseInt(existing.rows[0].count) > 0) return;
+
+    const defaults = [
+      { name: 'Hacker News', url: 'https://hn.algolia.com/api/v1/search_by_date?tags=front_page', type: 'hackernews', category: 'Tech' },
+      { name: 'BBC World', url: 'http://feeds.bbci.co.uk/news/world/rss.xml', type: 'rss', category: 'World' },
+      { name: 'BBC US/Canada', url: 'http://feeds.bbci.co.uk/news/world/us_and_canada/rss.xml', type: 'rss', category: 'US' },
+      { name: 'Reuters World', url: 'https://feeds.reuters.com/Reuters/worldNews', type: 'rss', category: 'World' },
+      { name: 'Al Jazeera', url: 'https://www.aljazeera.com/xml/rss/all.xml', type: 'rss', category: 'World' },
+      { name: 'DW News', url: 'https://rss.dw.com/rdf/rss-en-all', type: 'rss', category: 'World' },
+      { name: 'NPR News', url: 'https://feeds.npr.org/1001/rss.xml', type: 'rss', category: 'US' },
+      { name: 'CNBC Finance', url: 'https://www.cnbc.com/id/100003114/device/rss/rss.html', type: 'rss', category: 'Finance' },
+      { name: 'Yahoo Finance', url: 'https://finance.yahoo.com/news/rssindex', type: 'rss', category: 'Finance' },
+      { name: 'MarketWatch', url: 'https://feeds.marketwatch.com/marketwatch/topstories/', type: 'rss', category: 'Stocks' },
+      { name: 'Bloomberg Markets', url: 'https://feeds.bloomberg.com/markets/news.rss', type: 'rss', category: 'Finance' },
+      { name: 'Ars Technica', url: 'https://feeds.arstechnica.com/arstechnica/index', type: 'rss', category: 'Tech' },
+      { name: 'The Verge', url: 'https://www.theverge.com/rss/index.xml', type: 'rss', category: 'Tech' },
+      { name: 'Phys.org', url: 'https://phys.org/rss-feed/', type: 'rss', category: 'Science' },
+      { name: 'Nature News', url: 'http://feeds.nature.com/nature/rss/current', type: 'rss', category: 'Science' },
+      { name: 'New Scientist', url: 'https://www.newscientist.com/section/news/feed/', type: 'rss', category: 'Science' },
+      { name: 'GEN Biotech', url: 'https://www.genengnews.com/feed/', type: 'rss', category: 'Biotech' },
+      { name: 'BioSpace', url: 'https://www.biospace.com/rss/', type: 'rss', category: 'Biotech' },
+      { name: 'Biohackers Magazine', url: 'https://biohackersmagazine.com/feed/', type: 'rss', category: 'Biotech' },
+      { name: 'Google News Top', url: 'https://news.google.com/rss?hl=en-US&gl=US&ceid=US:en', type: 'rss', category: 'All' },
+      { name: 'Google News Science', url: 'https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRFp0Y1RjU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en', type: 'rss', category: 'Science' },
+      { name: 'Google News Business', url: 'https://news.google.com/rss/topics/CAAqJggKIiBDQkFTRWdvSUwyMHZNRGx6TVdZU0FtVnVHZ0pWVXlnQVAB?hl=en-US&gl=US&ceid=US:en', type: 'rss', category: 'Finance' },
+      { name: 'Ground News', url: 'https://ground.news/rss', type: 'rss', category: 'World' },
+      { name: 'Finviz News', url: 'https://finviz.com/news.ashx', type: 'rss', category: 'Stocks' },
+      { name: 'Benzinga', url: 'https://www.benzinga.com/feeds/rss', type: 'rss', category: 'Stocks' },
+      { name: 'FRED Blog', url: 'https://fredblog.stlouisfed.org/feed/', type: 'rss', category: 'Finance' },
+      { name: 'XYZ Science', url: 'https://xyzscience.com/feed/', type: 'rss', category: 'Science' },
+    
+    ];
+
+    for (const src of defaults) {
+      await this.db.query(
+        'INSERT INTO newsfeed_sources (name, url, type, category, enabled) VALUES ($1, $2, $3, $4, true)',
+        [src.name, src.url, src.type, src.category]
+      );
+    }
+    this.logger.log(`Seeded ${defaults.length} default news sources`);
+  }
+  async cleanupOldArticles(daysOld: number = 7) {
+    await this.db.query(
+      `DELETE FROM saved_articles WHERE saved = false AND archived = false AND created_at < NOW() - INTERVAL '${daysOld} days'`
+    );
+    return { success: true };
+  }
+
+  async updateNewsSource(id: number, updates: any) {
+    const fields: string[] = []; const values: any[] = []; let idx = 1;
+    if (updates.enabled !== undefined) { fields.push(`enabled = $${idx++}`); values.push(updates.enabled); }
+    if (updates.name !== undefined) { fields.push(`name = $${idx++}`); values.push(updates.name); }
+    if (updates.url !== undefined) { fields.push(`url = $${idx++}`); values.push(updates.url); }
+    if (updates.category !== undefined) { fields.push(`category = $${idx++}`); values.push(updates.category); }
+    if (fields.length === 0) return null;
+    values.push(id);
+    const result = await this.db.query(`UPDATE newsfeed_sources SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
+    return result.rows[0];
+  }
 }

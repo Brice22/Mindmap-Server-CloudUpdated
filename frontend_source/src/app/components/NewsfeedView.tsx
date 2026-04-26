@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
 
 interface NewsSource {
   id: string;
@@ -25,7 +27,7 @@ interface NewsArticle {
   saved: boolean;
 }
 
-const DEFAULT_CATEGORIES = ['All', 'Tech', 'Finance', 'World', 'Science', 'Politics', 'Custom'];
+const DEFAULT_CATEGORIES = ['All', 'Tech', 'Finance', 'Stocks', 'World', 'US', 'Politics', 'Science', 'Biotech', 'Custom'];
 
 const DEFAULT_SOURCES: NewsSource[] = [
   { id: 'ft', name: 'Financial Times', url: '', type: 'rss', enabled: false, category: 'Finance' },
@@ -50,43 +52,47 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
   const [newSourceType, setNewSourceType] = useState<'rss' | 'api'>('rss');
   const [newSourceCategory, setNewSourceCategory] = useState('Custom');
   const [newSourceApiKey, setNewSourceApiKey] = useState('');
+  const [fetching, setFetching] = useState(false);
+  const [lastFetch, setLastFetch] = useState('');
 
   // Fetch from enabled sources
+  // Load sources and articles from backend on mount
   useEffect(() => {
-    const fetchNews = async () => {
-      const hnSource = sources.find(s => s.id === 'hn' && s.enabled);
-      if (hnSource) {
-        try {
-          const res = await fetch(hnSource.url);
-          if (res.ok) {
-            const data = await res.json();
-            const hnArticles: NewsArticle[] = (data.hits || []).slice(0, 30).map((hit: any) => ({
-              id: `hn-${hit.objectID}`,
-              title: hit.title || 'Untitled',
-              description: hit.comment_text?.slice(0, 200) || hit.url || '',
-              url: hit.url || `https://news.ycombinator.com/item?id=${hit.objectID}`,
-              source: 'Hacker News',
-              category: 'Tech',
-              date: hit.created_at || new Date().toISOString(),
-              read: false,
-              archived: false,
-              saved: false,
-            }));
-            setArticles(prev => {
-              const existingIds = new Set(prev.map(a => a.id));
-              const newOnes = hnArticles.filter(a => !existingIds.has(a.id));
-              return [...newOnes, ...prev];
-            });
-          }
-        } catch (e) {
-          console.warn('Failed to fetch Hacker News:', e);
-        }
-      }
+    const load = async () => {
+      try {
+        await fetch(`${API_URL}/api/mindmap/news/seed`, { method: 'POST' });
+        const [srcRes, artRes] = await Promise.allSettled([
+          fetch(`${API_URL}/api/mindmap/news/sources`).then(r => r.ok ? r.json() : []),
+          fetch(`${API_URL}/api/mindmap/news/articles?filter=unread`).then(r => r.ok ? r.json() : []),
+        ]);
+        if (srcRes.status === 'fulfilled') setSources(srcRes.value);
+        if (artRes.status === 'fulfilled') setArticles(artRes.value);
+      } catch {}
     };
-    fetchNews();
-    const interval = setInterval(fetchNews, 5 * 60 * 1000); // refresh every 5 min
+    load();
+  }, []);
+
+  // Fetch new articles from all enabled sources
+  const refreshFeeds = async () => {
+    setFetching(true);
+    try {
+      const res = await fetch(`${API_URL}/api/mindmap/news/fetch`, { method: 'POST' });
+      if (res.ok) {
+        const result = await res.json();
+        setLastFetch(`Fetched from ${result.sources} sources`);
+        const artRes = await fetch(`${API_URL}/api/mindmap/news/articles`);
+        if (artRes.ok) setArticles(await artRes.json());
+      }
+    } catch { setLastFetch('Fetch failed'); }
+    setFetching(false);
+  };
+
+  // Auto-refresh every 10 minutes
+  useEffect(() => {
+    refreshFeeds();
+    const interval = setInterval(refreshFeeds, 10 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [sources]);
+  }, []);
 
   const filteredArticles = articles.filter(a => {
     if (viewFilter === 'unread' && (a.read || a.archived)) return false;
@@ -98,33 +104,45 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
 
   const unreadCount = articles.filter(a => !a.read && !a.archived).length;
 
-  const markRead = (id: string) => {
-    setArticles(prev => prev.map(a => a.id === id ? { ...a, read: true } : a));
+  const updateArticle = async (id: string | number, updates: Partial<NewsArticle>) => {
+    try { await fetch(`${API_URL}/api/mindmap/news/articles/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates) }); } catch {}
+    setArticles(prev => prev.map(a => a.id === id ? { ...a, ...updates } : a));
   };
 
-  const toggleSave = (id: string) => {
-    setArticles(prev => prev.map(a => a.id === id ? { ...a, saved: !a.saved } : a));
+  const markRead = (id: string | number) => updateArticle(id, { read: true });
+  const toggleSave = (id: string | number) => {
+    const article = articles.find(a => a.id === id);
+    if (article) updateArticle(id, { saved: !article.saved });
   };
+  const archive = (id: string | number) => updateArticle(id, { archived: true, read: true });
 
-  const archive = (id: string) => {
-    setArticles(prev => prev.map(a => a.id === id ? { ...a, archived: true, read: true } : a));
-  };
-
-  const handleAddSource = () => {
+ const handleAddSource = async () => {
     if (!newSourceName.trim() || !newSourceUrl.trim()) return;
-    setSources(prev => [...prev, {
-      id: `custom-${Date.now()}`,
-      name: newSourceName.trim(),
-      url: newSourceUrl.trim(),
-      type: newSourceType,
-      apiKey: newSourceApiKey || undefined,
-      enabled: true,
-      category: newSourceCategory,
-    }]);
+    try {
+      const res = await fetch(`${API_URL}/api/mindmap/news/sources`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newSourceName.trim(), url: newSourceUrl.trim(), type: newSourceType, apiKey: newSourceApiKey || null, category: newSourceCategory }),
+      });
+      if (res.ok) { const saved = await res.json(); setSources(prev => [...prev, saved]); }
+    } catch {
+      setSources(prev => [...prev, {
+        id: `custom-${Date.now()}`, name: newSourceName.trim(), url: newSourceUrl.trim(),
+        type: newSourceType, apiKey: newSourceApiKey || undefined, enabled: true, category: newSourceCategory,
+      }]);
+    }
     setNewSourceName(''); setNewSourceUrl(''); setNewSourceApiKey('');
     setShowAddSource(false);
   };
 
+  const deleteSource = async (id: string | number) => {
+    try { await fetch(`${API_URL}/api/mindmap/news/sources/${id}`, { method: 'DELETE' }); } catch {}
+    setSources(prev => prev.filter(s => s.id !== id));
+  };
+
+  const toggleSource = async (id: string | number, enabled: boolean) => {
+    try { await fetch(`${API_URL}/api/mindmap/news/sources/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ enabled }) }); } catch {}
+    setSources(prev => prev.map(s => s.id === id ? { ...s, enabled } : s));
+  };
   return (
     <div style={{ padding: '20px', height: '100%', display: 'flex', flexDirection: 'column', background: '#1e1e2e' }}>
       {/* Header */}
@@ -137,10 +155,15 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
             </span>
           )}
         </div>
-        <div style={{ display: 'flex', gap: '8px' }}>
+       <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
+          {lastFetch && <span style={{ color: '#666', fontSize: '11px' }}>{lastFetch}</span>}
+          <button onClick={refreshFeeds} disabled={fetching}
+            style={{ background: fetching ? '#555' : '#333', border: 'none', color: '#ccc', padding: '8px 12px', borderRadius: '4px', cursor: fetching ? 'wait' : 'pointer' }}>
+            {fetching ? '⏳ Fetching...' : '🔄 Refresh'}
+          </button>
           <button onClick={() => setShowSettings(!showSettings)}
             style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' }}>
-            ⚙️ Sources
+            ⚙️ Sources ({sources.filter(s => s.enabled).length})
           </button>
         </div>
       </div>
@@ -248,10 +271,8 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
                       onChange={() => setSources(prev => prev.map(s => s.id === src.id ? { ...s, enabled: !s.enabled } : s))} />
                     Active
                   </label>
-                  {src.id.startsWith('custom-') && (
-                    <button onClick={() => setSources(prev => prev.filter(s => s.id !== src.id))}
-                      style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
-                  )}
+                 <button onClick={() => deleteSource(src.id)}
+                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
                 </div>
               </div>
             ))}
