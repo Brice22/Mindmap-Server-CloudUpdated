@@ -29,20 +29,13 @@ interface NewsArticle {
 
 const DEFAULT_CATEGORIES = ['All', 'Tech', 'Finance', 'Stocks', 'World', 'US', 'Politics', 'Science', 'Biotech', 'Custom'];
 
-const DEFAULT_SOURCES: NewsSource[] = [
-  { id: 'ft', name: 'Financial Times', url: '', type: 'rss', enabled: false, category: 'Finance' },
-  { id: 'gn', name: 'Ground News', url: '', type: 'api', enabled: false, category: 'World' },
-  { id: 'google', name: 'Google News', url: 'https://news.google.com/rss', type: 'rss', enabled: false, category: 'All' },
-  { id: 'hn', name: 'Hacker News', url: 'https://hn.algolia.com/api/v1/search_by_date?tags=front_page', type: 'api', enabled: true, category: 'Tech' },
-];
-
 interface NewsfeedViewProps {
   onSaveToMindmap?: (title: string, url: string) => void;
 }
 
 export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
   const [articles, setArticles] = useState<NewsArticle[]>([]);
-  const [sources, setSources] = useState<NewsSource[]>(DEFAULT_SOURCES);
+  const [sources, setSources] = useState<NewsSource[]>([]);
   const [activeCategory, setActiveCategory] = useState('All');
   const [showSettings, setShowSettings] = useState(false);
   const [showAddSource, setShowAddSource] = useState(false);
@@ -266,12 +259,17 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
                   <div style={{ color: '#666', fontSize: '11px' }}>{src.category} · {src.type.toUpperCase()}</div>
                 </div>
                 <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
-                  <label style={{ color: '#888', fontSize: '12px', display: 'flex', gap: '4px', alignItems: 'center' }}>
-                    <input type="checkbox" checked={src.enabled}
-                      onChange={() => setSources(prev => prev.map(s => s.id === src.id ? { ...s, enabled: !s.enabled } : s))} />
-                    Active
-                  </label>
-                 <button onClick={() => deleteSource(src.id)}
+                  <div onClick={() => toggleSource(src.id, !src.enabled)}
+                    style={{
+                      width: '36px', height: '20px', borderRadius: '10px', cursor: 'pointer',
+                      background: src.enabled ? '#22c55e' : '#555', position: 'relative', flexShrink: 0,
+                    }}>
+                    <div style={{
+                      width: '16px', height: '16px', borderRadius: '50%', background: '#fff',
+                      position: 'absolute', top: '2px', left: src.enabled ? '18px' : '2px', transition: 'left 0.2s',
+                    }} />
+                  </div>
+                  <button onClick={() => deleteSource(src.id)}
                     style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
                 </div>
               </div>
