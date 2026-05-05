@@ -71,6 +71,7 @@ export default function MindMapGraph({
   const svgRef = useRef<SVGSVGElement>(null);        // The SVG element
   const socketRef = useRef<Socket | null>(null);     // WebSocket connection
   const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity); // Current zoom state
+  const nodePositionsRef = useRef<Record<number, { x: number; y: number }>>({});
   const dragStateRef = useRef<DragState>({           // Drag tracking
     isDragging: false,
     startX: 0,
@@ -205,13 +206,15 @@ export default function MindMapGraph({
     // --------------------------------------------------------
     // PREPARE D3 DATA
     // --------------------------------------------------------
-    const d3Nodes = filteredData.map(node => {
-      const pos = validatePosition(node);
+   const d3Nodes = filteredData.map(node => {
+      const stored = nodePositionsRef.current[node.id];
+      const pos = stored || validatePosition(node);
+      if (!stored) nodePositionsRef.current[node.id] = pos;
       return {
         ...node,
         x: pos.x,
         y: pos.y,
-        fx: pos.x,  // Fixed position (no physics)
+        fx: pos.x,
         fy: pos.y,
       };
     });
@@ -238,6 +241,15 @@ export default function MindMapGraph({
     });
 
     // --------------------------------------------------------
+    // CREATE CONTAINER GROUP
+    // --------------------------------------------------------
+    // All visual elements go inside this group.
+    // When we zoom, we transform this group (not individual elements).
+    // --------------------------------------------------------
+    const container = svg.append('g')
+      .attr('transform', transformRef.current.toString());
+
+    // --------------------------------------------------------
     // SETUP ZOOM BEHAVIOR
     // --------------------------------------------------------
     const zoom = d3.zoom<SVGSVGElement, unknown>()
@@ -251,16 +263,6 @@ export default function MindMapGraph({
 
     // Restore previous transform (preserves zoom/pan state)
     svg.call(zoom.transform, transformRef.current);
-
-    // --------------------------------------------------------
-    // CREATE CONTAINER GROUP
-    // --------------------------------------------------------
-    // All visual elements go inside this group.
-    // When we zoom, we transform this group (not individual elements).
-    // --------------------------------------------------------
-    const container = svg.append('g')
-      .attr('transform', transformRef.current.toString());
-
     // --------------------------------------------------------
     // DRAW EDGES (Lines between nodes)
     // --------------------------------------------------------
@@ -428,6 +430,8 @@ export default function MindMapGraph({
           // Update visual position
           d.x = event.x;
           d.y = event.y;
+          nodePositionsRef.current[d.id] = { x: d.x, y: d.y };
+
           d3.select(this).attr('transform', `translate(${d.x}, ${d.y})`);
 
           // Broadcast to other users (real-time)

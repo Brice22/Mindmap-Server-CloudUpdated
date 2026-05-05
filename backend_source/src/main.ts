@@ -11,6 +11,7 @@ async function bootstrap() {
     origin: '*', 
     methods: 'GET,HEAD,PUT,PATCH,POST,DELETE',
   });
+  app.setGlobalPrefix('api');
 
   // "Nuclear Fix": Read PORT directly to prevent startup crashes
   const port = process.env.PORT || 3000;

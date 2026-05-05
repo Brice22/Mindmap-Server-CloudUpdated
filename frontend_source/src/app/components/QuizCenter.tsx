@@ -3,7 +3,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import type { Node } from '@/lib/types';
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface Flashcard {
   id: string;
@@ -151,7 +150,7 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl }: QuizCenterProp
   const generateFromNode = async (node: Node) => {
     setBulkGenerating(true);
     try {
-      const res = await fetch(`${API_URL}/api/mindmap/node/${node.id}/quiz`);
+      const res = await fetch(`${apiUrl}/api/mindmap/node/${node.id}/quiz`);
       if (res.ok) {
         const data = await res.json();
         // Parse AI response into Q&A pairs

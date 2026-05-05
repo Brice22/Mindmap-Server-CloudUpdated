@@ -1,6 +1,6 @@
 import { Controller, Get, Res } from '@nestjs/common';
 import { MetricsService } from './metrics.service';
-import { Response } from 'express';
+import type { Response } from 'express';
 
 @Controller('metrics')
 export class MetricsController {

@@ -10,10 +10,18 @@ interface CalendarViewProps {
   events: CalendarEvent[];
   onEventClick: (event: CalendarEvent) => void;
   onDateClick: (date: string) => void | Promise<void>;
+  onUpdateEvent?: (id: string, updates: Partial<CalendarEvent>) => void | Promise<void>;
+  onDeleteEvent?: (id: string) => void | Promise<void>;
 }
 
-export default function CalendarView({ events, onEventClick, onDateClick }: CalendarViewProps) {
+const EVENT_COLORS = ['#0070f3', '#ef4444', '#22c55e', '#f59e0b', '#8b5cf6', '#ec4899', '#06b6d4'];
+
+export default function CalendarView({ events, onEventClick, onDateClick, onUpdateEvent, onDeleteEvent }: CalendarViewProps) {
   const [currentMonth, setCurrentMonth] = useState(new Date());
+  const [editingEvent, setEditingEvent] = useState<CalendarEvent | null>(null);
+  const [editTitle, setEditTitle] = useState('');
+  const [editColor, setEditColor] = useState('#0070f3');
+  const [editStart, setEditStart] = useState('');
 
   // Simple calendar grid — replace with FullCalendar once deps installed
   const year = currentMonth.getFullYear();
@@ -62,7 +70,14 @@ export default function CalendarView({ events, onEventClick, onDateClick }: Cale
               <div style={{ color: '#fff', fontSize: '14px', marginBottom: '4px' }}>{day}</div>
               {dayEvents.map(ev => (
                 <div key={ev.id}
-                  onClick={(e) => { e.stopPropagation(); onEventClick(ev); }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setEditingEvent(ev);
+                    setEditTitle(ev.title);
+                    setEditColor(ev.color || '#0070f3');
+                    setEditStart(ev.start?.split('T')[0] || '');
+                    onEventClick(ev);
+                  }}
                   style={{
                     background: ev.color || '#0070f3', padding: '2px 4px',
                     borderRadius: '2px', fontSize: '11px', color: '#fff',
@@ -75,6 +90,48 @@ export default function CalendarView({ events, onEventClick, onDateClick }: Cale
           );
         })}
       </div>
+
+      {/* Edit Event Modal */}
+      {editingEvent && (
+        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}
+          onClick={() => setEditingEvent(null)}>
+          <div style={{ background: '#2a2a3a', padding: '24px', borderRadius: '8px', width: '400px', border: '1px solid #444' }}
+            onClick={e => e.stopPropagation()}>
+            <h3 style={{ color: '#fff', marginTop: 0 }}>Edit Event</h3>
+            <input value={editTitle} onChange={e => setEditTitle(e.target.value)} placeholder="Event title"
+              style={{ width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: '8px', borderRadius: '4px', marginBottom: '8px' }} />
+            <input value={editStart} onChange={e => setEditStart(e.target.value)} type="date"
+              style={{ width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: '8px', borderRadius: '4px', marginBottom: '12px' }} />
+            <div style={{ display: 'flex', gap: '6px', marginBottom: '16px' }}>
+              {EVENT_COLORS.map(c => (
+                <div key={c} onClick={() => setEditColor(c)}
+                  style={{
+                    width: '28px', height: '28px', borderRadius: '50%', background: c, cursor: 'pointer',
+                    border: editColor === c ? '3px solid #fff' : '3px solid transparent',
+                  }} />
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: '8px', justifyContent: 'space-between' }}>
+              <button onClick={() => {
+                if (onDeleteEvent) onDeleteEvent(editingEvent.id);
+                setEditingEvent(null);
+              }}
+                style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
+                Delete
+              </button>
+              <div style={{ display: 'flex', gap: '8px' }}>
+                <button onClick={() => setEditingEvent(null)}
+                  style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>Cancel</button>
+                <button onClick={() => {
+                  if (onUpdateEvent) onUpdateEvent(editingEvent.id, { title: editTitle, start: editStart, color: editColor });
+                  setEditingEvent(null);
+                }}
+                  style={{ background: '#0070f3', border: 'none', color: '#fff', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>Save</button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

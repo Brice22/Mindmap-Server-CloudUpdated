@@ -738,6 +738,18 @@ export default function Dashboard() {
                   if (n) setSelectedNode(n);
                 }
               }}
+              onUpdateEvent={async (id, updates) => {
+                try {
+                  await fetch(`${API_URL}/api/mindmap/events/${id}`, {
+                    method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
+                  });
+                } catch {}
+                setCalendarEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
+              }}
+              onDeleteEvent={async (id) => {
+                try { await fetch(`${API_URL}/api/mindmap/events/${id}`, { method: 'DELETE' }); } catch {}
+                setCalendarEvents(prev => prev.filter(e => e.id !== id));
+              }}
               onDateClick={async (date) => {
                 const title = 'New Event';
                 try {
@@ -819,14 +831,6 @@ export default function Dashboard() {
                 setCalendarEvents(prev => prev.map(e => e.id === id ? { ...e, ...updates } : e));
               }}
            />
-          )}
-
-          {/* MIND MAP VIEW */}
-          {activeView === 'mindmap' && (
-            <div style={{ padding: '40px', textAlign: 'center', color: '#666' }}>
-              <h2 style={{ color: '#fff' }}>Mind Map (Tree View)</h2>
-              <p>Hierarchical tree layout of your nodes. Coming soon.</p>
-            </div>
           )}
 
           
