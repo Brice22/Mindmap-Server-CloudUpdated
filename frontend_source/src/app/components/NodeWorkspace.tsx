@@ -21,7 +21,6 @@
 
 import React, { useState, useCallback } from 'react';
 import type { Node, Panel } from '@/lib/types';
-import FormulaPanel from './panels/FormulaPanel';
 import ChartPanel from './panels/ChartPanel';
 import ExcalidrawWrapper from './ExcalidrawWrapper';
 import DocumentsPanel from './panels/DocumentsPanel';
@@ -160,8 +159,9 @@ export default function NodeWorkspace({
 
   const [panels, setPanels] = useState<Panel[]>(() => {
     if (meta.panelLayout && Array.isArray(meta.panelLayout)) {
-      return meta.panelLayout.map((p: any, i: number) => ({
-        id: `${p.type}-${i}`,
+      // 'formula' windows were retired (math lives in Docs now) — skip them in old saved layouts
+      return meta.panelLayout.filter((p: any) => p.type !== 'formula').map((p: any, i: number) => ({
+      id: `${p.type}-${i}`,
         type: p.type,
         title: titles[p.type] || p.type,
         width: 50,
@@ -310,13 +310,7 @@ export default function NodeWorkspace({
           />
         );
 
-      case 'formula':
-        return (
-          <FormulaPanel
-            formula={meta.formula || ''}
-            onSave={saveFormula}
-          />
-        );
+    
 
       case 'chart':
         return (
@@ -440,19 +434,7 @@ export default function NodeWorkspace({
           >
             📝 Notes
           </button>
-          <button
-            onClick={() => addPanel('formula')}
-            style={{
-              background: panels.some(p => p.type === 'formula') ? '#0070f3' : '#333',
-              border: 'none',
-              color: '#fff',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            ∑ Formula
-          </button>
+          
           <button
             onClick={() => addPanel('chart')}
             style={{

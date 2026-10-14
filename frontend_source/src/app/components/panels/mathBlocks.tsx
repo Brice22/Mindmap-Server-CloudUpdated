@@ -27,6 +27,7 @@ import {
   type DefaultReactSuggestionItem,
 } from '@blocknote/react';
 import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
+import { ChartBlock, GraphBlock } from './chartBlocks';
 
 // Render LaTeX to HTML; bad LaTeX shows in red instead of crashing
 function renderLatex(latex: string, displayMode: boolean) {
@@ -184,8 +185,8 @@ const InlineMath = createReactInlineContentSpec(
 // SCHEMA (default blocks + math)
 // ------------------------------------------------------------
 export const mathSchema = BlockNoteSchema.create({
-  blockSpecs: { ...defaultBlockSpecs, math: MathBlock() },
-  inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath },
+  blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock() },
+    inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath },
 });
 
 // ------------------------------------------------------------
@@ -207,8 +208,25 @@ export function getSlashMenuItems(editor: any): DefaultReactSuggestionItem[] {
       aliases: ['inline', 'inlinemath', 'latex', 'formula'],
       group: 'Math',
       icon: <span style={{ fontSize: 16 }}>ƒ</span>,
-      onItemClick: () => editor.insertInlineContent([{ type: 'inlineMath', props: { latex: '' } }, ' ']),
+           onItemClick: () => editor.insertInlineContent([{ type: 'inlineMath', props: { latex: '' } }, ' ']),
+    },
+    {
+      title: 'Chart',
+      subtext: 'Bar, line, pie, doughnut or radar chart from a small table',
+      aliases: ['chart', 'bar', 'pie', 'line', 'plot', 'data'],
+      group: 'Math',
+      icon: <span style={{ fontSize: 16 }}>📊</span>,
+      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'chart' } as any),
+    },
+    {
+      title: 'Graph',
+      subtext: 'Plot functions like sin(x) or x^2 (Desmos-style)',
+      aliases: ['graph', 'function', 'plot', 'desmos', 'jsxgraph'],
+      group: 'Math',
+      icon: <span style={{ fontSize: 16 }}>📈</span>,
+      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'graph' } as any),
     },
   ];
-  return [...getDefaultReactSlashMenuItems(editor), ...mathItems];
+  // Math items first so typing /graph picks Graph, not Paragraph (which also contains "graph")
+  return [...mathItems, ...getDefaultReactSlashMenuItems(editor)];
 }
