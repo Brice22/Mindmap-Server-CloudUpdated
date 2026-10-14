@@ -175,6 +175,17 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           saved BOOLEAN DEFAULT false,
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+        `CREATE TABLE IF NOT EXISTS node_documents (
+          id SERIAL PRIMARY KEY,
+          node_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          group_name TEXT DEFAULT 'General',
+          title TEXT NOT NULL DEFAULT 'Untitled',
+          content JSONB DEFAULT '[]'::jsonb,
+          sort_order INTEGER DEFAULT 0,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_node_documents_node ON node_documents(node_id)`,
       ];
 
       for (const sql of additionalTables) {

@@ -151,6 +151,17 @@ async searchNodes(@Query('q') query: string) {
   @Delete('news/articles/cleanup')
   cleanupOldArticles() { return this.mindmapService.cleanupOldArticles(7); }
 
+  // === NODE DOCUMENTS (BlockNote) ===
+  @Get('node/:id/documents')
+  getNodeDocuments(@Param('id') id: string) { return this.mindmapService.getNodeDocuments(Number(id)); }
+  @Post('node/:id/documents')
+  createNodeDocument(@Param('id') id: string, @Body() body: any) { return this.mindmapService.createNodeDocument(Number(id), body); }
+  @Get('documents/:id')
+  getNodeDocument(@Param('id') id: string) { return this.mindmapService.getNodeDocument(Number(id)); }
+  @Put('documents/:id')
+  updateNodeDocument(@Param('id') id: string, @Body() body: any) { return this.mindmapService.updateNodeDocument(Number(id), body); }
+  @Delete('documents/:id')
+  deleteNodeDocument(@Param('id') id: string) { return this.mindmapService.deleteNodeDocument(Number(id)); }
   // --- MEDIA UPLOAD ENDPOINT ---
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', {

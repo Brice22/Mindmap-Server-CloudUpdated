@@ -64,12 +64,16 @@ private _meili: MeiliSearch | null = null;
     const finalMeta = { ...extraMeta, type, source: 'dashboard' };
     const result = await this.db.query(sql, [name, description, JSON.stringify(finalMeta)]);
     
-    // Sync Search
-    await this.client.index('nodes').addDocuments([{
-      id: result.rows[0].id,
-      name: result.rows[0].name,
-      description: result.rows[0].description
-    }]);
+       // Sync Search
+    try {
+      await this.client.index('nodes').addDocuments([{
+        id: result.rows[0].id,
+        name: result.rows[0].name,
+        description: result.rows[0].description
+      }]);
+    } catch (e: any) {
+      this.logger.warn('MeiliSearch sync skipped: ' + e.message);
+    }
 
     // Sync to SurrealDB for semantic search
     try {
@@ -78,8 +82,9 @@ private _meili: MeiliSearch | null = null;
     } catch (e: any) {
       this.logger.warn('SurrealDB/MindsDB sync skipped: ' + e.message);
     }
-   await this.cache.invalidateNodeCache();
-   this.metrics.nodeCreations.inc();
+    
+    try { await this.cache.invalidateNodeCache(); } catch {}
+    try { this.metrics.nodeCreations.inc(); } catch {}
 
     return result.rows[0];
   }
@@ -521,7 +526,55 @@ return result.rows[0];
     if (updates.category !== undefined) { fields.push(`category = $${idx++}`); values.push(updates.category); }
     if (fields.length === 0) return null;
     values.push(id);
-    const result = await this.db.query(`UPDATE newsfeed_sources SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
+       const result = await this.db.query(`UPDATE newsfeed_sources SET ${fields.join(', ')} WHERE id = $${idx} RETURNING *`, values);
     return result.rows[0];
+  }
+
+  // === NODE DOCUMENTS (BlockNote) ===
+  async getNodeDocuments(nodeId: number) {
+    const result = await this.db.query(
+      `SELECT id, node_id, group_name, title, sort_order, created_at, updated_at
+       FROM node_documents WHERE node_id = $1 ORDER BY group_name, sort_order, id`,
+      [nodeId],
+    );
+    return result.rows;
+  }
+
+  async getNodeDocument(id: number) {
+    const result = await this.db.query('SELECT * FROM node_documents WHERE id = $1', [id]);
+    if (!result.rows[0]) throw new NotFoundException(`Document ${id} not found`);
+    return result.rows[0];
+  }
+
+  async createNodeDocument(nodeId: number, body: any) {
+    const result = await this.db.query(
+      `INSERT INTO node_documents (node_id, group_name, title, content)
+       VALUES ($1, $2, $3, $4)
+       RETURNING id, node_id, group_name, title, sort_order, created_at, updated_at`,
+      [nodeId, body.groupName || 'General', body.title || 'Untitled', JSON.stringify(body.content || [])],
+    );
+    return result.rows[0];
+  }
+
+  async updateNodeDocument(id: number, updates: any) {
+    const fields: string[] = []; const values: any[] = []; let idx = 1;
+    if (updates.title !== undefined) { fields.push(`title = $${idx++}`); values.push(updates.title); }
+    if (updates.groupName !== undefined) { fields.push(`group_name = $${idx++}`); values.push(updates.groupName); }
+    if (updates.content !== undefined) { fields.push(`content = $${idx++}`); values.push(JSON.stringify(updates.content)); }
+    if (updates.sortOrder !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(updates.sortOrder); }
+    if (fields.length === 0) return null;
+    fields.push('updated_at = CURRENT_TIMESTAMP');
+    values.push(id);
+    const result = await this.db.query(
+      `UPDATE node_documents SET ${fields.join(', ')} WHERE id = $${idx}
+       RETURNING id, node_id, group_name, title, sort_order, updated_at`,
+      values,
+    );
+    return result.rows[0];
+  }
+
+  async deleteNodeDocument(id: number) {
+    await this.db.query('DELETE FROM node_documents WHERE id = $1', [id]);
+    return { success: true };
   }
 }

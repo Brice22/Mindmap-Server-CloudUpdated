@@ -1,11 +1,12 @@
 import { NestFactory } from '@nestjs/core';
 // IMPORT the real module from the file next door
 import { AppModule } from './app.module'; 
+import type { NestExpressApplication } from '@nestjs/platform-express';
 
 async function bootstrap() {
   // Use the REAL AppModule here
-  const app = await NestFactory.create(AppModule);
-
+  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  app.useBodyParser('json', { limit: '10mb' });
   // Enable CORS so your Frontend (on port 3001/3002) can talk to this
   app.enableCors({
     origin: '*', 

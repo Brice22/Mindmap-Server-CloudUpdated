@@ -148,7 +148,7 @@ export interface Edge {
 // ============================================================
 export interface Panel {
   id: string;
-  type: 'etherpad' | 'formula' | 'chart' | 'preview' | 'custom' | 'excalidraw' | 'map' | 'table';
+  type: 'etherpad' | 'formula' | 'chart' | 'preview' | 'custom' | 'excalidraw' | 'map' | 'table' | 'docs';
   title: string;
   width: number;
   minimized?: boolean;

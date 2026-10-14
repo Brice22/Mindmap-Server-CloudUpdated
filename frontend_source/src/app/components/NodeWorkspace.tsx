@@ -24,6 +24,8 @@ import type { Node, Panel } from '@/lib/types';
 import FormulaPanel from './panels/FormulaPanel';
 import ChartPanel from './panels/ChartPanel';
 import ExcalidrawWrapper from './ExcalidrawWrapper';
+import DocumentsPanel from './panels/DocumentsPanel';
+import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import MapView from './MapView';
 
 
@@ -153,7 +155,7 @@ export default function NodeWorkspace({
   // Track which panels are open and their sizes
   const titles: Record<string, string> = {
     etherpad: 'Notes', formula: 'Formula', chart: 'Chart', preview: 'Preview',
-    custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table',
+    custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table', docs: 'Docs',
   };
 
   const [panels, setPanels] = useState<Panel[]>(() => {
@@ -169,7 +171,7 @@ export default function NodeWorkspace({
         minimized: !!p.minimized,
       }));
     }
-    return [{ id: 'etherpad', type: 'etherpad', title: 'Notes', width: 60, position: { x: 20, y: 20 }, size: { w: 600, h: 500 }, zIndex: 1 }];
+         return [{ id: 'docs', type: 'docs', title: 'Docs', width: 60, position: { x: 20, y: 20 }, size: { w: 800, h: 550 }, zIndex: 1 }];
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -199,13 +201,12 @@ export default function NodeWorkspace({
       custom: 'Custom',
       excalidraw: 'Draw',
       map: 'Map',
-      table: 'Table',
+      table: 'Table', docs: 'Docs',
     };
 
-    // Toggle: if panel exists, remove it (unless it's the last one)
+     // Toggle: if panel exists, remove it (closing the last one is allowed)
     if (panels.some(p => p.type === type)) {
       setPanels(prev => {
-        if (prev.length <= 1) return prev;
         const filtered = prev.filter(p => p.type !== type);
         const width = 100 / filtered.length;
         return filtered.map(p => ({ ...p, width }));
@@ -215,8 +216,13 @@ export default function NodeWorkspace({
 
    const offset = panels.length * 30;
     const cRect = containerRef.current?.getBoundingClientRect();
-    const defaultW = Math.min(600, (cRect?.width || 800) * 0.5);
-    const defaultH = Math.min(500, (cRect?.height || 600) * 0.7);
+       // Draw opens wider — Excalidraw switches to its cramped mobile toolbar below ~730px
+    const defaultW = type === 'excalidraw'
+      ? Math.min(1000, (cRect?.width || 1000) * 0.8)
+      : Math.min(600, (cRect?.width || 800) * 0.5);
+    const defaultH = type === 'excalidraw'
+      ? Math.min(650, (cRect?.height || 700) * 0.85)
+      : Math.min(500, (cRect?.height || 600) * 0.7);
     const newPanel: Panel = {
       id: `${type}-${Date.now()}`,
       type,
@@ -238,7 +244,6 @@ export default function NodeWorkspace({
     setPanels(prev => {
       const filtered = prev.filter(p => p.id !== panelId);
       // Redistribute widths
-      if (filtered.length === 0) return prev; // Keep at least one
       const width = 100 / filtered.length;
       return filtered.map(p => ({ ...p, width }));
     });
@@ -267,9 +272,17 @@ export default function NodeWorkspace({
   // --------------------------------------------------------
   // SAVE FORMULA
   // --------------------------------------------------------
-  const saveFormula = useCallback((formula: string) => {
-   saveMeta({ formula });
-  }, [node.id, meta, onUpdateNode]);
+   // Formula shown on the graph node — set by a math block's "Show on node" button
+  const [nodeFormula, setNodeFormula] = useState<string>(meta.formula || '');
+  const nodeFormulaCtx = React.useMemo(() => ({
+    formula: nodeFormula,
+    setFormula: (latex: string | null) => {
+      setNodeFormula(latex || '');
+      saveMeta({ formula: latex });   // null removes it from the node
+    },
+  }), [nodeFormula]);
+
+ 
 
   // --------------------------------------------------------
   // SAVE CHART CONFIG
@@ -315,13 +328,9 @@ export default function NodeWorkspace({
 
       case 'excalidraw':
         return (
-          <ExcalidrawWrapper
-            onSave={(excalidrawData: any) => {
-              onUpdateNode(node.id, {
-                metadata: { ...meta, excalidrawData },
-              } as any);
-            }}
-            initialData={meta.excalidrawData}
+         <ExcalidrawWrapper
+            onSave={(excalidrawData: any) => saveMeta({ excalidrawData })}
+            initialData={metaRef.current.excalidrawData}
           />
         );
 
@@ -339,13 +348,19 @@ export default function NodeWorkspace({
           />
         );
 
+            case 'docs':
+        return (
+          <NodeFormulaContext.Provider value={nodeFormulaCtx}>
+            <DocumentsPanel nodeId={node.id} />
+          </NodeFormulaContext.Provider>
+        );
       case 'table':
         return (
           <TableEditor
             data={meta.tableData || { headers: ['Column 1', 'Column 2', 'Column 3'], rows: [['', '', '']] }}
                        onSave={(tableData: any) => saveMeta({ tableData })}
             onDelete={() => {
-              saveMeta({ tableData: undefined });
+              saveMeta({ tableData: null });
               removePanel(panel.id);
             }}
           />
@@ -488,7 +503,20 @@ export default function NodeWorkspace({
               cursor: 'pointer',
             }}
           >
-            📋 Table
+           📋 Table
+          </button>
+          <button
+            onClick={() => addPanel('docs')}
+            style={{
+              background: panels.some(p => p.type === 'docs') ? '#0070f3' : '#333',
+              border: 'none',
+              color: '#fff',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            📄 Docs
           </button>
         </div>
 
@@ -530,6 +558,11 @@ export default function NodeWorkspace({
           background: '#1a1a2e',
         }}
       >
+            {panels.filter(p => !p.minimized).length === 0 && (
+          <div style={{ position: 'absolute', inset: 0, display: 'flex', alignItems: 'center', justifyContent: 'center', color: '#666', fontSize: 14 }}>
+            No windows open — pick one from the toolbar above
+          </div>
+        )}
         {panels.filter(p => !p.minimized).map((panel) => {
           const maximizedPanel = panels.find(p => p.maximized && !p.minimized);
           if (maximizedPanel && panel.id !== maximizedPanel.id) return null;
@@ -614,16 +647,15 @@ export default function NodeWorkspace({
                   <button onClick={() => toggleMaximize(panel.id)}
                     style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
                     title={panel.maximized ? 'Restore' : 'Maximize'}>{panel.maximized ? '❐' : '□'}</button>
-                  {panels.length > 1 && (
-                    <button onClick={() => removePanel(panel.id)}
-                      style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
-                      title="Close">×</button>
-                  )}
+                  <button onClick={() => removePanel(panel.id)}
+                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
+                    title="Close">×</button>
                 </div>
               </div>
 
               {/* Panel Content */}
-              <div style={{ flex: 1, overflow: 'auto' }}>
+             {/* isolation: keeps Excalidraw/Leaflet z-indexes inside the window so they can't cover the resize handle */}
+              <div style={{ flex: 1, minHeight: 0, overflow: 'auto', position: 'relative', isolation: 'isolate' }}>
                 {renderPanelContent(panel)}
               </div>
 
@@ -631,7 +663,7 @@ export default function NodeWorkspace({
               {!maximizedPanel && (
                 <div
                   style={{
-                    position: 'absolute', bottom: 0, right: 0,
+                    position: 'absolute', bottom: 0, right: 0, zIndex: 10,
                     width: '16px', height: '16px', cursor: 'nwse-resize',
                   }}
                   onMouseDown={(e) => {

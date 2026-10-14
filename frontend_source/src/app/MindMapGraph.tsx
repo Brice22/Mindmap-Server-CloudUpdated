@@ -24,6 +24,8 @@
 
 import React, { useEffect, useRef, useCallback } from 'react';
 import * as d3 from 'd3';
+import katex from 'katex';
+import 'katex/dist/katex.min.css';
 import { io, Socket } from 'socket.io-client';
 import type { Node, DragState } from '@/lib/types';
 
@@ -415,12 +417,12 @@ export default function MindMapGraph({
       // Formula/text/table preview on node
       if (meta.formula|| meta.tableData) {
         const previewText = meta.formula
-          ? meta.formula.slice(0, 30)
+          ? meta.formula
           : meta.tableData
           ? `📋 ${meta.tableData.headers.slice(0, 3).join(' | ')}`
           : (meta.description || '').slice(0, 40);
         if (previewText) {
-          g.append('foreignObject')
+                   const previewDiv = g.append('foreignObject')
             .attr('x', -r * 0.8).attr('y', -r * 0.5)
             .attr('width', r * 1.6).attr('height', r)
             .append('xhtml:div')
@@ -430,8 +432,13 @@ export default function MindMapGraph({
             .style('overflow', 'hidden')
             .style('line-height', '1.2')
             .style('opacity', '0.7')
-            .style('pointer-events', 'none')
-            .text(previewText);
+            .style('pointer-events', 'none');
+          // Formulas render as real math (KaTeX); everything else as plain text
+          if (meta.formula) {
+            previewDiv.html(katex.renderToString(meta.formula, { throwOnError: false, displayMode: false }));
+          } else {
+            previewDiv.text(previewText);
+          }
         }
       }
        

@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hserver-v1';
+const CACHE_NAME = 'hserver-v2';
 const STATIC_ASSETS = [
   '/',
   '/manifest.json',
@@ -24,11 +24,16 @@ self.addEventListener('activate', (event) => {
 
 // Fetch: network-first for API, cache-first for static
 self.addEventListener('fetch', (event) => {
-  const url = new URL(event.request.url);
+   const url = new URL(event.request.url);
 
-  // Never cache API calls
-  if (url.pathname.startsWith('/api/')) {
-    event.respondWith(fetch(event.request));
+  // Only handle normal GET requests from this site (skips chrome-extension://, POST, other sites)
+  if (event.request.method !== 'GET' || !url.protocol.startsWith('http') || url.origin !== self.location.origin) {
+    return;
+  }
+
+  // Never cache API calls, pages, or app code — caching these served stale versions after edits
+  if (url.pathname.startsWith('/api/') || url.pathname.startsWith('/_next/') ||
+      event.request.mode === 'navigate' || url.hostname === 'localhost') {
     return;
   }
 
