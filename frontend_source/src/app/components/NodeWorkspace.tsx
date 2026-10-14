@@ -30,6 +30,97 @@ import MapView from './MapView';
 // ============================================================
 // PROPS INTERFACE
 // ============================================================
+function TableEditor({ data, onSave, onDelete }: { data: { headers: string[]; rows: string[][] }; onSave: (data: any) => void; onDelete?: () => void }) {
+const [headers, setHeaders] = useState(data.headers);
+  const [rows, setRows] = useState(data.rows);
+
+  const updateCell = (rowIdx: number, colIdx: number, value: string) => {
+    const newRows = rows.map((row, ri) => ri === rowIdx ? row.map((cell, ci) => ci === colIdx ? value : cell) : row);
+    setRows(newRows);
+    onSave({ headers, rows: newRows });
+  };
+
+  const updateHeader = (colIdx: number, value: string) => {
+    const newHeaders = headers.map((h, i) => i === colIdx ? value : h);
+    setHeaders(newHeaders);
+    onSave({ headers: newHeaders, rows });
+  };
+
+  const addRow = () => {
+    const newRows = [...rows, new Array(headers.length).fill('')];
+    setRows(newRows);
+    onSave({ headers, rows: newRows });
+  };
+
+  const addColumn = () => {
+    const newHeaders = [...headers, `Column ${headers.length + 1}`];
+    const newRows = rows.map(row => [...row, '']);
+    setHeaders(newHeaders);
+    setRows(newRows);
+    onSave({ headers: newHeaders, rows: newRows });
+  };
+
+  const deleteRow = (idx: number) => {
+    if (rows.length <= 1) return;
+    const newRows = rows.filter((_, i) => i !== idx);
+    setRows(newRows);
+    onSave({ headers, rows: newRows });
+  };
+
+  const deleteColumn = (idx: number) => {
+    if (headers.length <= 1) return;
+    const newHeaders = headers.filter((_, i) => i !== idx);
+    const newRows = rows.map(row => row.filter((_, i) => i !== idx));
+    setHeaders(newHeaders);
+    setRows(newRows);
+    onSave({ headers: newHeaders, rows: newRows });
+  };
+
+  return (
+    <div style={{ padding: '12px', height: '100%', overflow: 'auto', background: '#1e1e2e' }}>
+      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
+        <button onClick={addRow} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>+ Row</button>
+        <button onClick={addColumn} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>+ Column</button>
+        {onDelete && <button onClick={onDelete} style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>🗑️ Delete Table</button>}
+      </div>
+      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
+        <thead>
+          <tr>
+            {headers.map((h, ci) => (
+              <th key={ci} style={{ position: 'relative', padding: 0, border: '1px solid #444' }}>
+                <input value={h} onChange={e => updateHeader(ci, e.target.value)}
+                  style={{ width: '100%', background: '#2a2a3a', color: '#fff', border: 'none', padding: '8px', fontWeight: 'bold', fontSize: '13px' }} />
+                {headers.length > 1 && (
+                  <button onClick={() => deleteColumn(ci)}
+                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px' }}>✕</button>
+                )}
+              </th>
+            ))}
+            <th style={{ width: '30px', border: '1px solid #444', background: '#2a2a3a' }} />
+          </tr>
+        </thead>
+        <tbody>
+          {rows.map((row, ri) => (
+            <tr key={ri}>
+              {row.map((cell, ci) => (
+                <td key={ci} style={{ padding: 0, border: '1px solid #444' }}>
+                  <input value={cell} onChange={e => updateCell(ri, ci, e.target.value)}
+                    style={{ width: '100%', background: '#1e1e2e', color: '#ccc', border: 'none', padding: '8px', fontSize: '13px' }} />
+                </td>
+              ))}
+              <td style={{ border: '1px solid #444', background: '#1e1e2e', textAlign: 'center' }}>
+                {rows.length > 1 && (
+                  <button onClick={() => deleteRow(ri)}
+                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px' }}>✕</button>
+                )}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
 interface NodeWorkspaceProps {
   node: Node;
   onClose: () => void;
@@ -49,25 +140,58 @@ export default function NodeWorkspace({
   // --------------------------------------------------------
   // STATE
   // --------------------------------------------------------
+    // Parse metadata (must come before panels state, which reads it)
+  const meta = typeof node.metadata === 'string'
+    ? JSON.parse(node.metadata)
+    : node.metadata || {};
+    // Latest metadata for this session — every save builds on this so saves don't overwrite each other
+  const metaRef = React.useRef<any>(meta);
+  const saveMeta = (patch: any) => {
+    metaRef.current = { ...metaRef.current, ...patch };
+    onUpdateNode(node.id, { metadata: metaRef.current } as any);
+  };
   // Track which panels are open and their sizes
-  const [panels, setPanels] = useState<Panel[]>([
-    { id: 'etherpad', type: 'etherpad', title: 'Notes', width: 60 },
-  ]);
+  const titles: Record<string, string> = {
+    etherpad: 'Notes', formula: 'Formula', chart: 'Chart', preview: 'Preview',
+    custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table',
+  };
+
+  const [panels, setPanels] = useState<Panel[]>(() => {
+    if (meta.panelLayout && Array.isArray(meta.panelLayout)) {
+      return meta.panelLayout.map((p: any, i: number) => ({
+        id: `${p.type}-${i}`,
+        type: p.type,
+        title: titles[p.type] || p.type,
+        width: 50,
+        position: p.position || { x: 20 + i * 30, y: 20 + i * 30 },
+        size: p.size || { w: 500, h: 400 },
+        zIndex: i + 1,
+        minimized: !!p.minimized,
+      }));
+    }
+    return [{ id: 'etherpad', type: 'etherpad', title: 'Notes', width: 60, position: { x: 20, y: 20 }, size: { w: 600, h: 500 }, zIndex: 1 }];
+  });
   const [isFullscreen, setIsFullscreen] = useState(false);
 
   const [draggedPanel, setDraggedPanel] = useState<string | null>(null);
   const [dragOverPanel, setDragOverPanel] = useState<string | null>(null);
+  const containerRef = React.useRef<HTMLDivElement>(null);
 
-  // Parse metadata
-  const meta = typeof node.metadata === 'string'
-    ? JSON.parse(node.metadata)
-    : node.metadata || {};
+ // Save layout 0.8s after the last move/resize/open/close
+  React.useEffect(() => {
+    const t = setTimeout(() => {
+      saveMeta({
+        panelLayout: panels.map(p => ({ type: p.type, position: p.position, size: p.size, minimized: !!p.minimized })),
+      });
+    }, 800);
+    return () => clearTimeout(t);
+  }, [panels]);
 
   // --------------------------------------------------------
   // ADD PANEL
   // --------------------------------------------------------
   const addPanel = useCallback((type: Panel['type']) => {
-    const titles: Record<Panel['type'], string> = {
+   const titles: Record<Panel['type'], string> = {
       etherpad: 'Notes',
       formula: 'Formula',
       chart: 'Chart',
@@ -75,31 +199,36 @@ export default function NodeWorkspace({
       custom: 'Custom',
       excalidraw: 'Draw',
       map: 'Map',
+      table: 'Table',
     };
 
-    // Check if panel already exists
+    // Toggle: if panel exists, remove it (unless it's the last one)
     if (panels.some(p => p.type === type)) {
-      // Just un-minimize it
-      setPanels(prev => prev.map(p => 
-        p.type === type ? { ...p, minimized: false } : p
-      ));
+      setPanels(prev => {
+        if (prev.length <= 1) return prev;
+        const filtered = prev.filter(p => p.type !== type);
+        const width = 100 / filtered.length;
+        return filtered.map(p => ({ ...p, width }));
+      });
       return;
     }
 
-    // Add new panel, redistribute widths
+   const offset = panels.length * 30;
+    const cRect = containerRef.current?.getBoundingClientRect();
+    const defaultW = Math.min(600, (cRect?.width || 800) * 0.5);
+    const defaultH = Math.min(500, (cRect?.height || 600) * 0.7);
     const newPanel: Panel = {
       id: `${type}-${Date.now()}`,
       type,
       title: titles[type],
-      width: 40,
+      width: 50,
+      position: { x: 20 + offset, y: 20 + offset },
+      size: { w: defaultW, h: defaultH },
+      zIndex: Math.max(...panels.map(p => p.zIndex || 1), 0) + 1,
     };
 
-    setPanels(prev => {
-      const newPanels = [...prev, newPanel];
-      // Redistribute widths evenly
-      const width = 100 / newPanels.length;
-      return newPanels.map(p => ({ ...p, width }));
-    });
+    setPanels(prev => [...prev, newPanel]);
+       
   }, [panels]);
 
   // --------------------------------------------------------
@@ -120,18 +249,18 @@ export default function NodeWorkspace({
   // --------------------------------------------------------
   const toggleMinimize = useCallback((panelId: string) => {
     setPanels(prev => prev.map(p => 
-      p.id === panelId ? { ...p, minimized: !p.minimized } : p
+      p.id === panelId ? { ...p, minimized: !p.minimized, maximized: false } : p
     ));
   }, []);
 
   // --------------------------------------------------------
   // TOGGLE MAXIMIZE
   // --------------------------------------------------------
-  const toggleMaximize = useCallback((panelId: string) => {
+   const toggleMaximize = useCallback((panelId: string) => {
     setPanels(prev => prev.map(p => 
       p.id === panelId 
-        ? { ...p, maximized: !p.maximized } 
-        : { ...p, maximized: false }  // Un-maximize others
+        ? { ...p, maximized: !p.maximized, minimized: false } 
+        : p
     ));
   }, []);
 
@@ -139,18 +268,14 @@ export default function NodeWorkspace({
   // SAVE FORMULA
   // --------------------------------------------------------
   const saveFormula = useCallback((formula: string) => {
-    onUpdateNode(node.id, {
-      metadata: { ...meta, formula },
-    } as any);
+   saveMeta({ formula });
   }, [node.id, meta, onUpdateNode]);
 
   // --------------------------------------------------------
   // SAVE CHART CONFIG
   // --------------------------------------------------------
   const saveChartConfig = useCallback((chartConfig: any) => {
-    onUpdateNode(node.id, {
-      metadata: { ...meta, chartConfig },
-    } as any);
+    saveMeta({ chartConfig });
   }, [node.id, meta, onUpdateNode]);
 
   // ============================================================
@@ -200,16 +325,29 @@ export default function NodeWorkspace({
           />
         );
 
-      case 'map':
+     case 'map':
         return (
           <MapView
+            key={`map-${panel.id}`}
             nodes={[node]}
             markers={(meta.mapMarkers || [])}
             onAddMarker={(nodeId, lat, lng) => {
-              const markers = [...(meta.mapMarkers || []), { nodeId, lat, lng }];
-              onUpdateNode(node.id, { metadata: { ...meta, mapMarkers: markers } } as any);
+              const markers = [...(metaRef.current.mapMarkers || []), { nodeId, lat, lng }];
+              saveMeta({ mapMarkers: markers });
             }}
             onNodeClick={() => {}}
+          />
+        );
+
+      case 'table':
+        return (
+          <TableEditor
+            data={meta.tableData || { headers: ['Column 1', 'Column 2', 'Column 3'], rows: [['', '', '']] }}
+                       onSave={(tableData: any) => saveMeta({ tableData })}
+            onDelete={() => {
+              saveMeta({ tableData: undefined });
+              removePanel(panel.id);
+            }}
           />
         );
 
@@ -224,7 +362,7 @@ export default function NodeWorkspace({
   return (
     <div
       style={{
-        position: isFullscreen ? 'fixed' : 'relative',
+       position: 'fixed',
         top: 0,
         left: 0,
         right: 0,
@@ -233,7 +371,7 @@ export default function NodeWorkspace({
         display: 'flex',
         flexDirection: 'column',
         background: '#1e1e1e',
-        height: '100%',
+        height: '100vh',
       }}
     >
       {/* ======================================================== */}
@@ -339,175 +477,123 @@ export default function NodeWorkspace({
           >
             🗺️ Map
           </button>
+          <button
+            onClick={() => addPanel('table')}
+            style={{
+              background: panels.some(p => p.type === 'table') ? '#0070f3' : '#333',
+              border: 'none',
+              color: '#fff',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            📋 Table
+          </button>
         </div>
 
         {/* Right: Fullscreen toggle */}
-        <button
-          onClick={() => setIsFullscreen(!isFullscreen)}
-          style={{
-            background: '#333',
-            border: 'none',
-            color: '#fff',
-            padding: '6px 12px',
-            borderRadius: '4px',
-            cursor: 'pointer',
-          }}
-        >
-          {isFullscreen ? '⊙ Exit Fullscreen' : '⤢ Fullscreen'}
-        </button>
+       <div style={{ display: 'flex', gap: '8px' }}>
+          
+          <button
+            onClick={() => {
+              if (!isFullscreen) {
+                document.documentElement.requestFullscreen?.();
+              } else {
+                document.exitFullscreen?.();
+              }
+              setIsFullscreen(!isFullscreen);
+            }}
+            style={{
+              background: '#333',
+              border: 'none',
+              color: '#fff',
+              padding: '6px 12px',
+              borderRadius: '4px',
+              cursor: 'pointer',
+            }}
+          >
+            {isFullscreen ? '⊙ Exit Fullscreen' : '⤢ Fullscreen'}
+          </button>
+        </div>
       </div>
 
       {/* ======================================================== */}
-      {/* PANELS CONTAINER */}
+      {/* PANELS CONTAINER — Floating Windows */}
       {/* ======================================================== */}
       <div
+        ref={containerRef}
         style={{
           flex: 1,
-          display: 'flex',
+          position: 'relative',
           overflow: 'hidden',
+          background: '#1a1a2e',
         }}
       >
-        {panels.filter(p => !p.minimized).map((panel, index) => {
-          // If one panel is maximized, only show that one
-          const maximizedPanel = panels.find(p => p.maximized);
-          if (maximizedPanel && panel.id !== maximizedPanel.id) {
-            return null;
-          }
+        {panels.filter(p => !p.minimized).map((panel) => {
+          const maximizedPanel = panels.find(p => p.maximized && !p.minimized);
+          if (maximizedPanel && panel.id !== maximizedPanel.id) return null;
+
+          const pos = panel.position || { x: 20, y: 20 };
+          const size = panel.size || { w: 500, h: 400 };
 
           return (
-            <React.Fragment key={panel.id}>
             <div
-              draggable
-              onDragStart={(e) => {
-                setDraggedPanel(panel.id);
-                e.dataTransfer.effectAllowed = 'move';
-              }}
-              onDragOver={(e) => {
-                e.preventDefault();
-                setDragOverPanel(panel.id);
-              }}
-              onDragLeave={() => setDragOverPanel(null)}
-              onDrop={(e) => {
-                e.preventDefault();
-                if (draggedPanel && draggedPanel !== panel.id) {
-                  setPanels(prev => {
-                    const newPanels = [...prev];
-                    const fromIdx = newPanels.findIndex(p => p.id === draggedPanel);
-                    const toIdx = newPanels.findIndex(p => p.id === panel.id);
-                    const [moved] = newPanels.splice(fromIdx, 1);
-                    newPanels.splice(toIdx, 0, moved);
-                    return newPanels;
-                  });
-                }
-                setDraggedPanel(null);
-                setDragOverPanel(null);
-              }}
-              onDragEnd={() => { setDraggedPanel(null); setDragOverPanel(null); }}
+              key={panel.id}
               style={{
-                flex: maximizedPanel ? 1 : `0 0 ${panel.width}%`,
+                position: maximizedPanel ? 'absolute' : 'absolute',
+                left: maximizedPanel ? 0 : pos.x,
+                top: maximizedPanel ? 0 : pos.y,
+                width: maximizedPanel ? '100%' : size.w,
+                height: maximizedPanel ? '100%' : size.h,
                 display: 'flex',
                 flexDirection: 'column',
-                borderRight: index < panels.length - 1 ? '1px solid #333' : 'none',
+                background: '#1e1e1e',
+                border: maximizedPanel ? 'none' : '1px solid #444',
+                borderRadius: maximizedPanel ? 0 : '6px',
+                boxShadow: maximizedPanel ? 'none' : '0 4px 20px rgba(0,0,0,0.5)',
+                zIndex: panel.zIndex || 1,
                 overflow: 'hidden',
-                opacity: draggedPanel === panel.id ? 0.5 : 1,
-                borderLeft: dragOverPanel === panel.id && draggedPanel !== panel.id ? '3px solid #0070f3' : 'none',
-                transition: 'opacity 0.2s',
+              }}
+              onClick={() => {
+                const maxZ = Math.max(...panels.map(p => p.zIndex || 1));
+                if ((panel.zIndex || 1) < maxZ) {
+                  setPanels(prev => prev.map(p =>
+                    p.id === panel.id ? { ...p, zIndex: maxZ + 1 } : p
+                  ));
+                }
               }}
             >
-              {/* Panel Header */}
+              {/* Window Title Bar — draggable */}
               <div
                 style={{
                   display: 'flex',
                   alignItems: 'center',
                   justifyContent: 'space-between',
-                  padding: '4px 8px',
+                  padding: '6px 10px',
                   background: '#333',
                   borderBottom: '1px solid #444',
+                  cursor: 'grab',
+                  userSelect: 'none',
+                  borderRadius: maximizedPanel ? 0 : '6px 6px 0 0',
                 }}
-              >
-                <span style={{ color: '#ccc', fontSize: '12px', cursor: 'grab', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                  <span style={{ color: '#555', fontSize: '10px' }}>⠿</span>
-                  {panel.title}
-                </span>
-                <div style={{ display: 'flex', gap: '4px' }}>
-                  <button
-                    onClick={() => toggleMinimize(panel.id)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#888',
-                      cursor: 'pointer',
-                      padding: '2px 6px',
-                    }}
-                    title="Minimize"
-                  >
-                    _
-                  </button>
-                  <button
-                    onClick={() => toggleMaximize(panel.id)}
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: '#888',
-                      cursor: 'pointer',
-                      padding: '2px 6px',
-                    }}
-                    title="Maximize"
-                  >
-                    □
-                  </button>
-                  {panels.length > 1 && (
-                    <button
-                      onClick={() => removePanel(panel.id)}
-                      style={{
-                        background: 'none',
-                        border: 'none',
-                        color: '#888',
-                        cursor: 'pointer',
-                        padding: '2px 6px',
-                      }}
-                      title="Close"
-                    >
-                      ×
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Panel Content */}
-              <div style={{ flex: 1, overflow: 'auto' }}>
-                {renderPanelContent(panel)}
-              </div>
-            </div>
-            {/* Resize handle between panels */}
-            {!maximizedPanel && index < panels.filter(p => !p.minimized).length - 1 && (
-              <div
-                style={{
-                  width: '5px', cursor: 'col-resize', background: '#333',
-                  flexShrink: 0, transition: 'background 0.2s',
-                }}
-                onMouseEnter={(e) => { e.currentTarget.style.background = '#0070f3'; }}
-                onMouseLeave={(e) => { e.currentTarget.style.background = '#333'; }}
                 onMouseDown={(e) => {
-                  const startX = e.clientX;
-                  const panelsCopy = [...panels];
-                  const visiblePanels = panelsCopy.filter(p => !p.minimized);
-                  const leftPanel = visiblePanels[index];
-                  const rightPanel = visiblePanels[index + 1];
-                  const startLeftWidth = leftPanel.width;
-                  const startRightWidth = rightPanel.width;
-
+                  if (maximizedPanel) return;
+                  e.preventDefault();
+                  const startX = e.clientX - pos.x;
+                  const startY = e.clientY - pos.y;
+                  const maxZ = Math.max(...panels.map(p => p.zIndex || 1));
+                  setPanels(prev => prev.map(p =>
+                    p.id === panel.id ? { ...p, zIndex: maxZ + 1 } : p
+                  ));
                   const onMove = (ev: MouseEvent) => {
-                    const containerWidth = (e.currentTarget.parentElement?.clientWidth || 800);
-                    const deltaPercent = ((ev.clientX - startX) / containerWidth) * 100;
-                    const newLeft = Math.max(15, Math.min(85, startLeftWidth + deltaPercent));
-                    const newRight = Math.max(15, Math.min(85, startRightWidth - deltaPercent));
-
-                    setPanels(prev => prev.map(p => {
-                      if (p.id === leftPanel.id) return { ...p, width: newLeft };
-                      if (p.id === rightPanel.id) return { ...p, width: newRight };
-                      return p;
-                    }));
+                    const cRect = containerRef.current?.getBoundingClientRect();
+                    if (!cRect) return;
+                    const newX = Math.max(0, Math.min(cRect.width - 100, ev.clientX - startX));
+                    const newY = Math.max(0, Math.min(cRect.height - 40, ev.clientY - startY));
+                    setPanels(prev => prev.map(p =>
+                      p.id === panel.id ? { ...p, position: { x: newX, y: newY } } : p
+                    ));
                   };
                   const onUp = () => {
                     document.removeEventListener('mousemove', onMove);
@@ -516,9 +602,70 @@ export default function NodeWorkspace({
                   document.addEventListener('mousemove', onMove);
                   document.addEventListener('mouseup', onUp);
                 }}
-              />
-            )}
-            </React.Fragment>
+              >
+                <span style={{ color: '#ccc', fontSize: '12px', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                  <span style={{ color: '#555' }}>⠿</span>
+                  {panel.title}
+                </span>
+                <div style={{ display: 'flex', gap: '4px' }}>
+                  <button onClick={() => toggleMinimize(panel.id)}
+                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
+                    title="Minimize">_</button>
+                  <button onClick={() => toggleMaximize(panel.id)}
+                    style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
+                    title={panel.maximized ? 'Restore' : 'Maximize'}>{panel.maximized ? '❐' : '□'}</button>
+                  {panels.length > 1 && (
+                    <button onClick={() => removePanel(panel.id)}
+                      style={{ background: 'none', border: 'none', color: '#888', cursor: 'pointer', padding: '2px 6px', fontSize: '12px' }}
+                      title="Close">×</button>
+                  )}
+                </div>
+              </div>
+
+              {/* Panel Content */}
+              <div style={{ flex: 1, overflow: 'auto' }}>
+                {renderPanelContent(panel)}
+              </div>
+
+              {/* Resize handle — bottom right corner */}
+              {!maximizedPanel && (
+                <div
+                  style={{
+                    position: 'absolute', bottom: 0, right: 0,
+                    width: '16px', height: '16px', cursor: 'nwse-resize',
+                  }}
+                  onMouseDown={(e) => {
+                    e.preventDefault();
+                    e.stopPropagation();
+                    const startX = e.clientX;
+                    const startY = e.clientY;
+                    const startW = size.w;
+                    const startH = size.h;
+                    const maxZ = Math.max(...panels.map(p => p.zIndex || 1));
+                    setPanels(prev => prev.map(p =>
+                      p.id === panel.id ? { ...p, zIndex: maxZ + 1 } : p
+                    ));
+                    const onMove = (ev: MouseEvent) => {
+                      const newW = Math.max(200, startW + (ev.clientX - startX));
+                      const newH = Math.max(150, startH + (ev.clientY - startY));
+                      setPanels(prev => prev.map(p =>
+                        p.id === panel.id ? { ...p, size: { w: newW, h: newH } } : p
+                      ));
+                    };
+                    const onUp = () => {
+                      document.removeEventListener('mousemove', onMove);
+                      document.removeEventListener('mouseup', onUp);
+                    };
+                    document.addEventListener('mousemove', onMove);
+                    document.addEventListener('mouseup', onUp);
+                  }}
+                >
+                  <svg width="16" height="16" viewBox="0 0 16 16" style={{ opacity: 0.4 }}>
+                    <path d="M14 2L2 14M14 6L6 14M14 10L10 14" stroke="#888" strokeWidth="1.5" fill="none"/>
+                  </svg>
+                </div>
+              )}
+            </div>
           );
         })}
       </div>
@@ -527,29 +674,16 @@ export default function NodeWorkspace({
       {/* MINIMIZED PANELS BAR */}
       {/* ======================================================== */}
       {panels.some(p => p.minimized) && (
-        <div
-          style={{
-            display: 'flex',
-            gap: '4px',
-            padding: '4px 8px',
-            background: '#252526',
-            borderTop: '1px solid #333',
-          }}
-        >
+        <div style={{
+          display: 'flex', gap: '4px', padding: '4px 8px',
+          background: '#252526', borderTop: '1px solid #333',
+        }}>
           {panels.filter(p => p.minimized).map(panel => (
-            <button
-              key={panel.id}
-              onClick={() => toggleMinimize(panel.id)}
+            <button key={panel.id} onClick={() => toggleMinimize(panel.id)}
               style={{
-                background: '#333',
-                border: 'none',
-                color: '#ccc',
-                padding: '4px 12px',
-                borderRadius: '4px',
-                cursor: 'pointer',
-                fontSize: '12px',
-              }}
-            >
+                background: '#333', border: 'none', color: '#ccc',
+                padding: '4px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px',
+              }}>
               {panel.title}
             </button>
           ))}

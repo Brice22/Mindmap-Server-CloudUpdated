@@ -46,11 +46,12 @@ const TYPE_COLORS: Record<string, string> = {
 // PROPS INTERFACE
 // ============================================================
 interface MindMapGraphProps {
-  data: Node[];                           // Array of nodes to display
-  onNodeClick: (node: Node) => void;      // Called when node is clicked
-  onNodeDoubleClick: (node: Node) => void; // Called when node is double-clicked
-  selectedNodeId: number | null;          // Currently selected node
-  filterType: string;                     // Filter nodes by type ('all' or specific)
+  data: Node[];
+  onNodeClick: (node: Node) => void;
+  onNodeDoubleClick: (node: Node) => void;
+  onNodeContextMenu: (e: React.MouseEvent, node: Node) => void;
+  selectedNodeId: number | null;
+  filterType: string;
 }
 
 // ============================================================
@@ -60,6 +61,7 @@ export default function MindMapGraph({
   data,
   onNodeClick,
   onNodeDoubleClick,
+  onNodeContextMenu,
   selectedNodeId,
   filterType,
 }: MindMapGraphProps) {
@@ -81,14 +83,33 @@ export default function MindMapGraph({
   });
 
   // Store callbacks in ref to avoid dependency issues
-  const callbacksRef = useRef({ onNodeClick, onNodeDoubleClick });
+  const callbacksRef = useRef({ onNodeClick, onNodeDoubleClick, onNodeContextMenu });
   useEffect(() => {
-    callbacksRef.current = { onNodeClick, onNodeDoubleClick };
-  }, [onNodeClick, onNodeDoubleClick]);
+    callbacksRef.current = { onNodeClick, onNodeDoubleClick, onNodeContextMenu };
+  }, [onNodeClick, onNodeDoubleClick, onNodeContextMenu]);
 
   // ============================================================
   // WEBSOCKET CONNECTION
   // ============================================================
+ 
+ // Document-level contextmenu for nodes — bypasses all D3/React conflicts
+  const dataRef = useRef(data);
+  useEffect(() => { dataRef.current = data; }, [data]);
+
+  useEffect(() => {
+    const handler = (e: MouseEvent) => {
+      const target = e.target as Element;
+      if (!target.closest('svg')) return;
+      const nodeGroup = target.closest('g[id^="node-group-"]');
+      if (!nodeGroup) return;
+      e.preventDefault();
+      const nodeId = parseInt(nodeGroup.id.replace('node-group-', ''));
+      const node = dataRef.current.find(n => n.id === nodeId);
+      if (node) callbacksRef.current.onNodeContextMenu(e as any, node);
+    };
+    document.addEventListener('contextmenu', handler);
+    return () => document.removeEventListener('contextmenu', handler);
+  }, []);
   // Connects once when component mounts, disconnects on unmount.
   // ============================================================
   useEffect(() => {
@@ -338,32 +359,98 @@ export default function MindMapGraph({
       .attr('cursor', 'pointer');
 
     // --------------------------------------------------------
-    // NODE CIRCLE
-    // --------------------------------------------------------
+   // Invisible hit area for click/right-click on all node shapes
     nodeGroups.append('circle')
-      .attr('r', 25)
-      .attr('fill', d => {
-        const meta = typeof d.metadata === 'string'
-          ? JSON.parse(d.metadata)
-          : d.metadata || {};
-        return TYPE_COLORS[meta.type] || TYPE_COLORS.default;
+      .attr('r', (d: any) => {
+        const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
+        const sizes: Record<string, number> = { small: 18, medium: 25, large: 35 };
+        return (sizes[meta.nodeSize || 'medium'] || 25) * 1.4;
       })
-      .attr('stroke', d => d.id === selectedNodeId ? '#fff' : 'transparent')
-      .attr('stroke-width', d => d.id === selectedNodeId ? 3 : 0)
-      .attr('filter', d => d.id === selectedNodeId ? 'drop-shadow(0 0 10px white)' : 'none');
+      .attr('fill', 'transparent')
+      .style('pointer-events', 'all');
+    // --------------------------------------------------------
+    // NODE SHAPE
+    // --------------------------------------------------------
+    const SIZE_MAP: Record<string, number> = { small: 18, medium: 25, large: 35 };
 
+    nodeGroups.each(function(d: any) {
+      const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
+      const shape = meta.shape || 'circle';
+      const r = SIZE_MAP[meta.nodeSize || 'medium'] || 25;
+      const fill = TYPE_COLORS[meta.type] || TYPE_COLORS.default;
+      const isSelected = d.id === selectedNodeId;
+      const stroke = isSelected ? '#fff' : 'transparent';
+      const strokeWidth = isSelected ? 3 : 0;
+      const filter = isSelected ? 'drop-shadow(0 0 10px white)' : 'none';
+      const g = d3.select(this);
+
+      if (shape === 'rectangle') {
+        g.append('rect')
+          .attr('x', -r * 1.4).attr('y', -r)
+          .attr('width', r * 2.8).attr('height', r * 2)
+          .attr('rx', 4)
+          .attr('fill', fill).attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth).attr('filter', filter);
+      } else if (shape === 'diamond') {
+        g.append('polygon')
+          .attr('points', `0,${-r * 1.3} ${r * 1.3},0 0,${r * 1.3} ${-r * 1.3},0`)
+          .attr('fill', fill).attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth).attr('filter', filter);
+      } else if (shape === 'hexagon') {
+        const pts = [0,1,2,3,4,5].map(i => {
+          const angle = (Math.PI / 3) * i - Math.PI / 2;
+          return `${r * 1.2 * Math.cos(angle)},${r * 1.2 * Math.sin(angle)}`;
+        }).join(' ');
+        g.append('polygon')
+          .attr('points', pts)
+          .attr('fill', fill).attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth).attr('filter', filter);
+      } else {
+        g.append('circle')
+          .attr('r', r)
+          .attr('fill', fill).attr('stroke', stroke)
+          .attr('stroke-width', strokeWidth).attr('filter', filter);
+      }
+
+      // Formula/text/table preview on node
+      if (meta.formula|| meta.tableData) {
+        const previewText = meta.formula
+          ? meta.formula.slice(0, 30)
+          : meta.tableData
+          ? `📋 ${meta.tableData.headers.slice(0, 3).join(' | ')}`
+          : (meta.description || '').slice(0, 40);
+        if (previewText) {
+          g.append('foreignObject')
+            .attr('x', -r * 0.8).attr('y', -r * 0.5)
+            .attr('width', r * 1.6).attr('height', r)
+            .append('xhtml:div')
+            .style('font-size', `${Math.max(7, r * 0.35)}px`)
+            .style('color', '#fff')
+            .style('text-align', 'center')
+            .style('overflow', 'hidden')
+            .style('line-height', '1.2')
+            .style('opacity', '0.7')
+            .style('pointer-events', 'none')
+            .text(previewText);
+        }
+      }
+       
+      
+    });
     // --------------------------------------------------------
     // ORPHAN WARNING RING
     // --------------------------------------------------------
     // Orange dashed ring if node has a parent that doesn't exist
     // --------------------------------------------------------
-    nodeGroups.each(function(d) {
+    nodeGroups.each(function(d: any) {
       if (hasOrphanedParent(d, data)) {
+        const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
+        const r = (SIZE_MAP[meta.nodeSize || 'medium'] || 25) + 5;
         d3.select(this)
           .append('circle')
-          .attr('r', 30)
+          .attr('r', r)
           .attr('fill', 'none')
-          .attr('stroke', '#f97316')  // Orange
+          .attr('stroke', '#f97316')
           .attr('stroke-width', 2)
           .attr('stroke-dasharray', '5,3');
       }
@@ -393,8 +480,11 @@ export default function MindMapGraph({
     // --------------------------------------------------------
     // NODE LABEL
     // --------------------------------------------------------
-    nodeGroups.append('text')
-      .attr('y', 40)
+   nodeGroups.append('text')
+      .attr('y', (d: any) => {
+        const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
+        return (SIZE_MAP[meta.nodeSize || 'medium'] || 25) + 15;
+      })
       .attr('text-anchor', 'middle')
       .attr('fill', '#fff')
       .attr('font-size', 12)
@@ -407,6 +497,7 @@ export default function MindMapGraph({
     // Implements the drag threshold fix
     // --------------------------------------------------------
     const drag = d3.drag<SVGGElement, typeof d3Nodes[0]>()
+      .filter((event: any) => event.button === 0)
       .on('start', function(event, d) {
         // Record starting position
         dragStateRef.current = {
@@ -536,20 +627,22 @@ export default function MindMapGraph({
       callbacksRef.current.onNodeDoubleClick(d);
     });
 
+
     // --------------------------------------------------------
     // BACKGROUND CLICK - Deselect
     // --------------------------------------------------------
     svg.on('click', () => {
-      // Reset all photos and opacity when clicking background
       callbacksRef.current.onNodeClick(null as any);
-
     });
+
+    
 
   }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent]);
 
   // ============================================================
   // RENDER
   // ============================================================
+ 
   return (
     <svg
       ref={svgRef}

@@ -28,7 +28,7 @@
 
 'use client';
 
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import type { Node } from '@/lib/types';
 
 // ============================================================
@@ -67,6 +67,8 @@ export default function ContextMenu({
   onAction,
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
+  const [submenu, setSubmenu] = useState<string | null>(null);
+
 
   // --------------------------------------------------------
   // PARSE METADATA
@@ -157,6 +159,16 @@ export default function ContextMenu({
       action: 'bookmark',
       divider: false,
    },
+  // === APPEARANCE ===
+    {
+      label: `🔷 Shape ►`,
+      action: 'submenu_shape',
+    },
+    {
+      label: `📐 Size ►`,
+      action: 'submenu_size',
+      divider: true,
+    },
 
     // === FEATURES ===
     { label: '∑ Add Formula', icon: '∑', action: 'addFormula' },
@@ -182,8 +194,12 @@ export default function ContextMenu({
   // --------------------------------------------------------
   // HANDLE CLICK
   // --------------------------------------------------------
-  const handleItemClick = (item: MenuItem) => {
+ const handleItemClick = (item: MenuItem) => {
     if (item.disabled) return;
+    if (item.action.startsWith('submenu_')) {
+      setSubmenu(submenu === item.action ? null : item.action);
+      return;
+    }
     onAction(item.action, node);
     onClose();
   };
@@ -196,19 +212,29 @@ export default function ContextMenu({
   let adjustedY = y;
   
   // Adjust if near right edge
-  if (typeof window !== 'undefined') {
-    if (x + 200 > window.innerWidth) {
-      adjustedX = window.innerWidth - 210;
+ if (typeof window !== 'undefined') {
+    if (x + 220 > window.innerWidth) {
+      adjustedX = window.innerWidth - 230;
     }
-    if (y + 400 > window.innerHeight) {
-      adjustedY = window.innerHeight - 410;
+    if (y + 500 > window.innerHeight) {
+      adjustedY = Math.max(10, window.innerHeight - 510);
     }
   }
 
   // ============================================================
   // RENDER
   // ============================================================
-  return (
+ return (
+    <>
+    <div
+      onClick={onClose}
+      onContextMenu={(e) => { e.preventDefault(); onClose(); }}
+      style={{
+        position: 'fixed',
+        inset: 0,
+        zIndex: 9998,
+      }}
+    />
     <div
       ref={menuRef}
       style={{
@@ -221,6 +247,8 @@ export default function ContextMenu({
         borderRadius: '8px',
         padding: '6px 0',
         minWidth: '200px',
+        maxHeight: `calc(100vh - ${adjustedY + 20}px)`,
+        overflowY: 'auto',
         boxShadow: '0 10px 40px rgba(0,0,0,0.5)',
       }}
     >
@@ -285,6 +313,40 @@ export default function ContextMenu({
             {item.label}
           </div>
           
+          {/* Shape submenu */}
+          {item.action === 'submenu_shape' && submenu === 'submenu_shape' && (
+            <div style={{ background: '#252525', padding: '4px 0', margin: '0 8px', borderRadius: '4px' }}>
+              {['circle', 'rectangle', 'diamond', 'hexagon'].map(shape => (
+                <div key={shape} onClick={() => { onAction(`setShape_${shape}`, node); onClose(); }}
+                  style={{
+                    padding: '6px 16px', cursor: 'pointer', fontSize: '12px',
+                    color: (meta.shape || 'circle') === shape ? '#0070f3' : '#ccc',
+                    fontWeight: (meta.shape || 'circle') === shape ? 'bold' : 'normal',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#3d3d3d'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                  {shape === 'circle' ? '⭕' : shape === 'rectangle' ? '⬜' : shape === 'diamond' ? '🔷' : '⬡'} {shape}
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Size submenu */}
+          {item.action === 'submenu_size' && submenu === 'submenu_size' && (
+            <div style={{ background: '#252525', padding: '4px 0', margin: '0 8px', borderRadius: '4px' }}>
+              {['small', 'medium', 'large'].map(size => (
+                <div key={size} onClick={() => { onAction(`setSize_${size}`, node); onClose(); }}
+                  style={{
+                    padding: '6px 16px', cursor: 'pointer', fontSize: '12px',
+                    color: (meta.nodeSize || 'medium') === size ? '#0070f3' : '#ccc',
+                    fontWeight: (meta.nodeSize || 'medium') === size ? 'bold' : 'normal',
+                  }}
+                  onMouseEnter={e => { e.currentTarget.style.background = '#3d3d3d'; }}
+                  onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
+                  {size === 'small' ? '🔹' : size === 'medium' ? '🔸' : '🔶'} {size}
+                </div>
+              ))}
+            </div>
+          )}
           {item.divider && (
             <div
               style={{
@@ -297,5 +359,6 @@ export default function ContextMenu({
         </React.Fragment>
       ))}
     </div>
+    </>
   );
 }

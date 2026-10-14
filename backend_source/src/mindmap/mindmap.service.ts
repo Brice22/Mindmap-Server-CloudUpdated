@@ -27,25 +27,23 @@ private _meili: MeiliSearch | null = null;
   ) { // Seed default news sources on first startup
     setTimeout(() => this.seedDefaultSources().catch(() => {}), 5000);}
 
-  async syncRelationship(childId: number, parentName: string) {
+ async syncRelationship(childId: number, parentName: string) {
       const parentRes = await this.db.query("SELECT id FROM mindmap_nodes WHERE lower(name) = lower($1)", [parentName]);
       if (parentRes.rows.length === 0) return;
       const parentId = parentRes.rows[0].id;
-
-  await this.neo4j.write(`
+  try { await this.neo4j.write(`
       MERGE (c:Node {pgId: $childId})
       MERGE (p:Node {pgId: $parentId})
       MERGE (c)-[:CHILD_OF]->(p)
-    `, { childId, parentId });
+    `, { childId, parentId }); } catch {}
   }
 
-  async deleteNode(id: number) {
+ async deleteNode(id: number) {
     await this.db.query("DELETE FROM mindmap_nodes WHERE id = $1", [id]);
-    await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id });
-    
+    try { await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id }); } catch {}
     try { await this.client.index("nodes").deleteDocument(id.toString()); } catch {}
-    await this.cache.invalidateNodeCache();
-    this.metrics.nodeDeletions.inc();
+    try { await this.cache.invalidateNodeCache(); } catch {}
+    try { this.metrics.nodeDeletions.inc(); } catch {}
     return { success: true };
   }
 

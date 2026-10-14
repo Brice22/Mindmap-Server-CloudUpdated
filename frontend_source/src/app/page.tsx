@@ -440,6 +440,17 @@ export default function Dashboard() {
           metadata: { ...meta, quizEnabled: !meta.quizEnabled },
         } as any);
         break;
+        
+       default: {
+        if (action.startsWith('setShape_')) {
+          const shape = action.replace('setShape_', '');
+          await updateNode(node.id, { metadata: { ...meta, shape } } as any);
+        } else if (action.startsWith('setSize_')) {
+          const nodeSize = action.replace('setSize_', '');
+          await updateNode(node.id, { metadata: { ...meta, nodeSize } } as any);
+        }
+        break;
+      }
 
       case 'delete':
         await deleteNode(node.id);
@@ -662,11 +673,21 @@ export default function Dashboard() {
 
                   {/* Graph */}
                   <div style={{ flex: 1, position: 'relative' }}
-                    onContextMenu={(e) => {
-                      const target = e.target as HTMLElement;
-                      // Only if clicking the background (not a node)
-                      if ((e.target as HTMLElement).tagName === 'svg' || (e.target as HTMLElement).closest('svg') === e.target) {
-                        e.preventDefault();
+                  onContextMenu={(e) => {
+                      e.preventDefault();
+                      const target = e.target as Element;
+                      const nodeGroup = target.closest('g[id^="node-group-"]');
+                      console.log('React contextmenu:', target.tagName, nodeGroup?.id, nodes.length);
+                      if (nodeGroup) {
+                        const nodeId = parseInt(nodeGroup.id.replace('node-group-', ''));
+                        const node = nodes.find(n => n.id === nodeId);
+                        console.log('Found node:', nodeId, node?.name);
+                        if (node) {
+                          handleContextMenu(e, node);
+                          return;
+                        }
+                      }
+                      if (target.tagName === 'svg' || target.closest('svg')) {
                         setModal({ visible: true, mode: 'create' });
                       }
                     }}
@@ -680,10 +701,11 @@ export default function Dashboard() {
                         <span>Error: {error}</span>
                       </div>
                     ) : (
-                      <MindMapGraph
+                     <MindMapGraph
                         data={nodes}
                         onNodeClick={handleNodeClick}
                         onNodeDoubleClick={handleNodeDoubleClick}
+                        onNodeContextMenu={handleContextMenu}
                         selectedNodeId={selectedNode?.id || null}
                         filterType={filterType}
                       />

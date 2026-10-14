@@ -148,11 +148,14 @@ export interface Edge {
 // ============================================================
 export interface Panel {
   id: string;
-  type: 'etherpad' | 'formula' | 'chart' | 'preview' | 'custom' | 'excalidraw' | 'map';
+  type: 'etherpad' | 'formula' | 'chart' | 'preview' | 'custom' | 'excalidraw' | 'map' | 'table';
   title: string;
-  width: number;          // Width in pixels or percentage
+  width: number;
   minimized?: boolean;
   maximized?: boolean;
+  position?: { x: number; y: number };
+  size?: { w: number; h: number };
+  zIndex?: number;
 }
 
 // ============================================================
