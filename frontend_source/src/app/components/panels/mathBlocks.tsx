@@ -28,6 +28,7 @@ import {
 } from '@blocknote/react';
 import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import { ChartBlock, GraphBlock } from './chartBlocks';
+import { EmbedBlock } from './embedBlock';
 
 // Render LaTeX to HTML; bad LaTeX shows in red instead of crashing
 function renderLatex(latex: string, displayMode: boolean) {
@@ -185,7 +186,7 @@ const InlineMath = createReactInlineContentSpec(
 // SCHEMA (default blocks + math)
 // ------------------------------------------------------------
 export const mathSchema = BlockNoteSchema.create({
-  blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock() },
+  blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock(), embed: EmbedBlock() },
     inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath },
 });
 
@@ -224,7 +225,15 @@ export function getSlashMenuItems(editor: any): DefaultReactSuggestionItem[] {
       aliases: ['graph', 'function', 'plot', 'desmos', 'jsxgraph'],
       group: 'Math',
       icon: <span style={{ fontSize: 16 }}>📈</span>,
-      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'graph' } as any),
+           onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'graph' } as any),
+    },
+    {
+      title: 'Embed',
+      subtext: 'Show a web page: Desmos/GeoGebra share link, YouTube, …',
+      aliases: ['embed', 'iframe', 'link', 'youtube', 'desmos', 'geogebra', 'web'],
+      group: 'Math',
+      icon: <span style={{ fontSize: 16 }}>🌐</span>,
+      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'embed' } as any),
     },
   ];
   // Math items first so typing /graph picks Graph, not Paragraph (which also contains "graph")

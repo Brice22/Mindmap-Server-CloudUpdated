@@ -21,7 +21,6 @@
 
 import React, { useState, useCallback } from 'react';
 import type { Node, Panel } from '@/lib/types';
-import ChartPanel from './panels/ChartPanel';
 import ExcalidrawWrapper from './ExcalidrawWrapper';
 import DocumentsPanel from './panels/DocumentsPanel';
 import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
@@ -31,97 +30,7 @@ import MapView from './MapView';
 // ============================================================
 // PROPS INTERFACE
 // ============================================================
-function TableEditor({ data, onSave, onDelete }: { data: { headers: string[]; rows: string[][] }; onSave: (data: any) => void; onDelete?: () => void }) {
-const [headers, setHeaders] = useState(data.headers);
-  const [rows, setRows] = useState(data.rows);
 
-  const updateCell = (rowIdx: number, colIdx: number, value: string) => {
-    const newRows = rows.map((row, ri) => ri === rowIdx ? row.map((cell, ci) => ci === colIdx ? value : cell) : row);
-    setRows(newRows);
-    onSave({ headers, rows: newRows });
-  };
-
-  const updateHeader = (colIdx: number, value: string) => {
-    const newHeaders = headers.map((h, i) => i === colIdx ? value : h);
-    setHeaders(newHeaders);
-    onSave({ headers: newHeaders, rows });
-  };
-
-  const addRow = () => {
-    const newRows = [...rows, new Array(headers.length).fill('')];
-    setRows(newRows);
-    onSave({ headers, rows: newRows });
-  };
-
-  const addColumn = () => {
-    const newHeaders = [...headers, `Column ${headers.length + 1}`];
-    const newRows = rows.map(row => [...row, '']);
-    setHeaders(newHeaders);
-    setRows(newRows);
-    onSave({ headers: newHeaders, rows: newRows });
-  };
-
-  const deleteRow = (idx: number) => {
-    if (rows.length <= 1) return;
-    const newRows = rows.filter((_, i) => i !== idx);
-    setRows(newRows);
-    onSave({ headers, rows: newRows });
-  };
-
-  const deleteColumn = (idx: number) => {
-    if (headers.length <= 1) return;
-    const newHeaders = headers.filter((_, i) => i !== idx);
-    const newRows = rows.map(row => row.filter((_, i) => i !== idx));
-    setHeaders(newHeaders);
-    setRows(newRows);
-    onSave({ headers: newHeaders, rows: newRows });
-  };
-
-  return (
-    <div style={{ padding: '12px', height: '100%', overflow: 'auto', background: '#1e1e2e' }}>
-      <div style={{ display: 'flex', gap: '8px', marginBottom: '12px' }}>
-        <button onClick={addRow} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>+ Row</button>
-        <button onClick={addColumn} style={{ background: '#333', border: 'none', color: '#ccc', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>+ Column</button>
-        {onDelete && <button onClick={onDelete} style={{ background: '#ef4444', border: 'none', color: '#fff', padding: '6px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>🗑️ Delete Table</button>}
-      </div>
-      <table style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr>
-            {headers.map((h, ci) => (
-              <th key={ci} style={{ position: 'relative', padding: 0, border: '1px solid #444' }}>
-                <input value={h} onChange={e => updateHeader(ci, e.target.value)}
-                  style={{ width: '100%', background: '#2a2a3a', color: '#fff', border: 'none', padding: '8px', fontWeight: 'bold', fontSize: '13px' }} />
-                {headers.length > 1 && (
-                  <button onClick={() => deleteColumn(ci)}
-                    style={{ position: 'absolute', top: '2px', right: '2px', background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px' }}>✕</button>
-                )}
-              </th>
-            ))}
-            <th style={{ width: '30px', border: '1px solid #444', background: '#2a2a3a' }} />
-          </tr>
-        </thead>
-        <tbody>
-          {rows.map((row, ri) => (
-            <tr key={ri}>
-              {row.map((cell, ci) => (
-                <td key={ci} style={{ padding: 0, border: '1px solid #444' }}>
-                  <input value={cell} onChange={e => updateCell(ri, ci, e.target.value)}
-                    style={{ width: '100%', background: '#1e1e2e', color: '#ccc', border: 'none', padding: '8px', fontSize: '13px' }} />
-                </td>
-              ))}
-              <td style={{ border: '1px solid #444', background: '#1e1e2e', textAlign: 'center' }}>
-                {rows.length > 1 && (
-                  <button onClick={() => deleteRow(ri)}
-                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: '10px' }}>✕</button>
-                )}
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
-    </div>
-  );
-}
 interface NodeWorkspaceProps {
   node: Node;
   onClose: () => void;
@@ -159,8 +68,8 @@ export default function NodeWorkspace({
 
   const [panels, setPanels] = useState<Panel[]>(() => {
     if (meta.panelLayout && Array.isArray(meta.panelLayout)) {
-      // 'formula' windows were retired (math lives in Docs now) — skip them in old saved layouts
-      return meta.panelLayout.filter((p: any) => p.type !== 'formula').map((p: any, i: number) => ({
+            // Retired windows (math, charts and tables live in Docs now) — skip them in old saved layouts
+      return meta.panelLayout.filter((p: any) => !['formula', 'chart', 'table'].includes(p.type)).map((p: any, i: number) => ({
       id: `${p.type}-${i}`,
         type: p.type,
         title: titles[p.type] || p.type,
@@ -274,22 +183,24 @@ export default function NodeWorkspace({
   // --------------------------------------------------------
    // Formula shown on the graph node — set by a math block's "Show on node" button
   const [nodeFormula, setNodeFormula] = useState<string>(meta.formula || '');
+   // Table shown on the graph node — set from a table's ⠿ menu in Docs
+  const [nodeTable, setNodeTable] = useState<any>(meta.tableData || null);
   const nodeFormulaCtx = React.useMemo(() => ({
     formula: nodeFormula,
     setFormula: (latex: string | null) => {
       setNodeFormula(latex || '');
       saveMeta({ formula: latex });   // null removes it from the node
     },
-  }), [nodeFormula]);
+    tableData: nodeTable,
+    setTableData: (table: any) => {
+      setNodeTable(table);
+      saveMeta({ tableData: table });  // null removes it from the node
+    },
+  }), [nodeFormula, nodeTable]);
 
  
 
-  // --------------------------------------------------------
-  // SAVE CHART CONFIG
-  // --------------------------------------------------------
-  const saveChartConfig = useCallback((chartConfig: any) => {
-    saveMeta({ chartConfig });
-  }, [node.id, meta, onUpdateNode]);
+ 
 
   // ============================================================
   // RENDER PANEL CONTENT
@@ -312,13 +223,7 @@ export default function NodeWorkspace({
 
     
 
-      case 'chart':
-        return (
-          <ChartPanel
-            config={meta.chartConfig}
-            onSave={saveChartConfig}
-          />
-        );
+    
 
       case 'excalidraw':
         return (
@@ -345,20 +250,17 @@ export default function NodeWorkspace({
             case 'docs':
         return (
           <NodeFormulaContext.Provider value={nodeFormulaCtx}>
-            <DocumentsPanel nodeId={node.id} />
+            <DocumentsPanel
+              nodeId={node.id}
+              legacy={metaRef.current.legacyImported ? undefined : {
+                tableData: metaRef.current.tableData,
+                chartConfig: metaRef.current.chartConfig,
+              }}
+              onLegacyImported={() => saveMeta({ chartConfig: null, legacyImported: true })}
+            />
           </NodeFormulaContext.Provider>
         );
-      case 'table':
-        return (
-          <TableEditor
-            data={meta.tableData || { headers: ['Column 1', 'Column 2', 'Column 3'], rows: [['', '', '']] }}
-                       onSave={(tableData: any) => saveMeta({ tableData })}
-            onDelete={() => {
-              saveMeta({ tableData: null });
-              removePanel(panel.id);
-            }}
-          />
-        );
+     
 
       default:
         return <div>Unknown panel type</div>;
@@ -435,19 +337,7 @@ export default function NodeWorkspace({
             📝 Notes
           </button>
           
-          <button
-            onClick={() => addPanel('chart')}
-            style={{
-              background: panels.some(p => p.type === 'chart') ? '#0070f3' : '#333',
-              border: 'none',
-              color: '#fff',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            📊 Chart
-          </button>
+          
            <button
             onClick={() => addPanel('excalidraw')}
             style={{
@@ -474,19 +364,7 @@ export default function NodeWorkspace({
           >
             🗺️ Map
           </button>
-          <button
-            onClick={() => addPanel('table')}
-            style={{
-              background: panels.some(p => p.type === 'table') ? '#0070f3' : '#333',
-              border: 'none',
-              color: '#fff',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-           📋 Table
-          </button>
+         
           <button
             onClick={() => addPanel('docs')}
             style={{

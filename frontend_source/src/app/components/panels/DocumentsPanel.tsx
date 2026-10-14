@@ -38,8 +38,58 @@ type SaveState = 'saved' | 'unsaved' | 'saving' | 'error';
 const smallBtn: React.CSSProperties = { background: '#333', border: 'none', color: '#ccc', padding: '6px 10px', borderRadius: 4, cursor: 'pointer', fontSize: 12 };
 const inputStyle: React.CSSProperties = { width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: 6, borderRadius: 4, fontSize: 12, marginTop: 6 };
 
-export default function DocumentsPanel({ nodeId }: { nodeId: number }) {
-  const [docs, setDocs] = useState<DocSummary[]>([]);
+// One-time import: turn data from the retired Table/Chart windows into document blocks
+interface LegacyData { tableData?: any; chartConfig?: any }
+
+function legacyToBlocks(legacy?: LegacyData): any[] {
+  if (!legacy) return [];
+  const blocks: any[] = [];
+  const t = legacy.tableData;
+  if (t?.headers?.length) {
+    blocks.push({ type: 'heading', props: { level: 3 }, content: 'Table' });
+    blocks.push({
+      type: 'table',
+      content: {
+        type: 'tableContent',
+        headerRows: 1,
+        rows: [t.headers, ...(t.rows || [])].map((r: any[]) => ({ cells: r.map(c => String(c ?? '')) })),
+      },
+    });
+  }
+  const c = legacy.chartConfig;
+  if (c) {
+    const cj = c.chartjsConfig;
+    if (cj?.data?.labels?.length) {
+      const clean = (v: any) => String(v ?? '').replace(/[,\t\n]/g, ' ');
+      const ds: any[] = cj.data.datasets || [];
+      const header = ['Label', ...ds.map((d, i) => clean(d.label || `Series ${i + 1}`))].join(', ');
+      const rows = cj.data.labels.map((l: any, i: number) => [clean(l), ...ds.map(d => Number(d.data?.[i]) || 0)].join(', '));
+      blocks.push({ type: 'heading', props: { level: 3 }, content: 'Chart' });
+      blocks.push({
+        type: 'chart',
+        props: {
+          chartType: ['bar', 'line', 'pie', 'doughnut', 'radar'].includes(cj.type) ? cj.type : 'bar',
+          title: String(cj.options?.plugins?.title?.text || ''),
+          data: [header, ...rows].join('\n'),
+        },
+      });
+    }
+    for (const url of [c.desmosUrl, c.geogebraUrl, c.customUrl]) {
+      if (url) blocks.push({ type: 'embed', props: { url } });
+    }
+  }
+  if (blocks.length) blocks.unshift({ type: 'paragraph', content: 'Imported automatically from the old Table/Chart windows.' });
+  return blocks;
+}
+
+interface DocumentsPanelProps {
+  nodeId: number;
+  legacy?: LegacyData;              // old Table/Chart data to import once
+  onLegacyImported?: () => void;    // called after the import document is created
+}
+
+export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: DocumentsPanelProps) {
+const [docs, setDocs] = useState<DocSummary[]>([]);
   const [activeId, setActiveId] = useState<number | null>(null);
   const [loaded, setLoaded] = useState<{ id: number; content: any[] } | null>(null);
   const [saveState, setSaveState] = useState<SaveState>('saved');
@@ -53,17 +103,32 @@ export default function DocumentsPanel({ nodeId }: { nodeId: number }) {
   // Latest unsaved content (kept in a ref so typing doesn't re-render the list)
   const pending = useRef<{ id: number; content: any[] } | null>(null);
 
+    // Import old Table/Chart data at most once, even though React runs this effect twice in dev
+  const importPromise = useRef<Promise<void> | null>(null);
+
   // Load this node's document list
   useEffect(() => {
     let cancelled = false;
-    fetch(`${API_URL}/api/mindmap/node/${nodeId}/documents`)
-      .then(r => (r.ok ? r.json() : []))
-      .then((list: DocSummary[]) => {
+    (async () => {
+      const legacyBlocks = legacyToBlocks(legacy);
+      if (legacyBlocks.length && !importPromise.current) {
+        importPromise.current = fetch(`${API_URL}/api/mindmap/node/${nodeId}/documents`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ title: 'Imported (old Table/Chart)', groupName: 'General', content: legacyBlocks }),
+        })
+          .then(res => { if (res.ok) onLegacyImported?.(); })
+          .catch(() => {});
+      }
+      if (importPromise.current) await importPromise.current;
+      try {
+        const r = await fetch(`${API_URL}/api/mindmap/node/${nodeId}/documents`);
+        const list: DocSummary[] = r.ok ? await r.json() : [];
         if (cancelled) return;
         setDocs(list);
         setActiveId(prev => prev ?? list[0]?.id ?? null);
-      })
-      .catch(() => {});
+      } catch {}
+    })();
     return () => { cancelled = true; };
   }, [nodeId]);
 
