@@ -31,6 +31,7 @@ import MindMapGraph from './MindMapGraph';
 import ContextMenu from './components/ContextMenu';
 import NodeWorkspace from './components/NodeWorkspace';
 import NotesPreview from './components/NotesPreview';
+import BacklinksPanel from './components/BacklinksPanel';
 import DocumentsPanel from './components/panels/DocumentsPanel';
 import NodeModal from './components/NodeModal';
 import GlobalNavBar from './components/GlobalNavBar';
@@ -99,6 +100,13 @@ export default function Dashboard() {
   // --------------------------------------------------------
   const [workspaceNode, setWorkspaceNode] = useState<Node | null>(null);
   const [workspaceOpenPanel, setWorkspaceOpenPanel] = useState<Panel['type'] | undefined>(undefined);
+
+  // --------------------------------------------------------
+  // STATE: Backlinks (dashed link lines on the graph + Inspector refresh)
+  // --------------------------------------------------------
+  const [linkEdges, setLinkEdges] = useState<{ source: number; target: number; kind: 'link' | 'mention' }[]>([]);
+  const [showLinkLines, setShowLinkLines] = useState(true);
+  const [backlinksRefresh, setBacklinksRefresh] = useState(0);
   // --------------------------------------------------------
   // STATE: New Features
   // --------------------------------------------------------
@@ -172,9 +180,20 @@ export default function Dashboard() {
 
   // Keep the selected node in sync with the latest data, so the Inspector (and
   // "Open in Workspace" from it) never works from an old copy of the node
-  useEffect(() => {
+   useEffect(() => {
     setSelectedNode(prev => (prev ? nodes.find(n => n.id === prev.id) || prev : prev));
   }, [nodes]);
+
+  // Backlink lines for the graph — reloaded whenever nodes reload or the workspace closes
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/api/mindmap/backlinks/edges`)
+        .then(r => (r.ok ? r.json() : []))
+        .then(setLinkEdges)
+        .catch(() => {});
+    }, 500);
+    return () => clearTimeout(t);
+  }, [nodes, backlinksRefresh]);
 
   // Listen for edge right-click
   useEffect(() => {
@@ -497,15 +516,7 @@ export default function Dashboard() {
   // ============================================================
   const activeTab = tabs.find(t => t.id === activeTabId);
 
-  // Calculate backlinks for selected node
-  const backlinks = selectedNode
-    ? nodes.filter(n => {
-        const m = typeof n.metadata === 'string'
-          ? JSON.parse(n.metadata)
-          : n.metadata || {};
-        return m.parent && m.parent.toLowerCase() === selectedNode.name.toLowerCase();
-      })
-    : [];
+ 
 
   // ============================================================
   // RENDER: WORKSPACE MODE
@@ -514,8 +525,8 @@ export default function Dashboard() {
     return (
       <NodeWorkspace
               node={workspaceNode}
-        onClose={() => { setWorkspaceNode(null); setWorkspaceOpenPanel(undefined); }}
-        onUpdateNode={updateNode}
+              onClose={() => { setWorkspaceNode(null); setWorkspaceOpenPanel(undefined); setBacklinksRefresh(k => k + 1); fetchNodes(); }}
+              onUpdateNode={updateNode}
         openPanel={workspaceOpenPanel}
       />
     );
@@ -705,9 +716,22 @@ export default function Dashboard() {
                       </div>
                     ) : error ? (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ef4444' }}>
-                        <span>Error: {error}</span>
+                                             <span>Error: {error}</span>
                       </div>
                     ) : (
+                     <>
+                     {/* Toggle the dashed backlink lines (blue = linked, grey = mentioned) */}
+                     <button
+                        onClick={() => setShowLinkLines(s => !s)}
+                        title="Show or hide backlink lines between nodes"
+                        style={{
+                          position: 'absolute', top: 10, right: 10, zIndex: 5,
+                          background: showLinkLines ? '#0070f3' : '#333', color: '#fff',
+                          border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
+                        }}
+                      >
+                        🔗 Links {showLinkLines ? 'on' : 'off'}
+                      </button>
                      <MindMapGraph
                         data={nodes}
                         onNodeClick={handleNodeClick}
@@ -715,7 +739,9 @@ export default function Dashboard() {
                         onNodeContextMenu={handleContextMenu}
                         selectedNodeId={selectedNode?.id || null}
                         filterType={filterType}
+                        linkEdges={showLinkLines ? linkEdges : undefined}
                       />
+                     </>
                     )}
                   </div>
                 </>
@@ -998,39 +1024,14 @@ export default function Dashboard() {
                     Open in Workspace
                   </button>
 
-                  {/* Backlinks */}
-                  <div
-                    style={{
-                      marginBottom: '20px',
-                      background: '#111',
-                      padding: '10px',
-                      borderRadius: '8px',
-                    }}
-                  >
-                    <h4 style={{ margin: '0 0 10px 0', color: '#aaa' }}>
-                      Linked Mentions (Backlinks)
-                    </h4>
-                    {backlinks.length > 0 ? (
-                      backlinks.map(bn => (
-                        <div
-                          key={bn.id}
-                          onClick={() => handleNodeClick(bn)}
-                          style={{
-                            padding: '5px',
-                            borderBottom: '1px solid #333',
-                            cursor: 'pointer',
-                            color: '#0070f3',
-                          }}
-                        >
-                          ↳ {bn.name}
-                        </div>
-                      ))
-                    ) : (
-                      <div style={{ fontStyle: 'italic', color: '#666' }}>
-                        No nodes link here yet.
-                      </div>
-                    )}
-                  </div>
+                 {/* Backlinks — automatic links from docs, Draw notes, descriptions and map pins */}
+                  <BacklinksPanel
+                    node={selectedNode}
+                    nodes={nodes}
+                    refreshKey={backlinksRefresh}
+                    onSelectNode={handleNodeClick}
+                    onUpdateNode={updateNode}
+                  />
 
                   {/* Quick Notes — preview of the node's Draw (Excalidraw) notes; click to edit */}
                   <h4 style={{ margin: '0 0 10px 0' }}>Quick Notes</h4>

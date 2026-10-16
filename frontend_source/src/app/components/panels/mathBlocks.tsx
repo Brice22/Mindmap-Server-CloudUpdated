@@ -29,6 +29,7 @@ import {
 import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import { ChartBlock, GraphBlock } from './chartBlocks';
 import { EmbedBlock } from './embedBlock';
+import { NodeMention } from './nodeMentions';
 
 // Render LaTeX to HTML; bad LaTeX shows in red instead of crashing
 function renderLatex(latex: string, displayMode: boolean) {
@@ -187,7 +188,7 @@ const InlineMath = createReactInlineContentSpec(
 // ------------------------------------------------------------
 export const mathSchema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock(), embed: EmbedBlock() },
-    inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath },
+    inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath, nodeMention: NodeMention },
 });
 
 // ------------------------------------------------------------

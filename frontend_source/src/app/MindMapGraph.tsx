@@ -54,7 +54,11 @@ interface MindMapGraphProps {
   onNodeContextMenu: (e: React.MouseEvent, node: Node) => void;
   selectedNodeId: number | null;
   filterType: string;
+  linkEdges?: { source: number; target: number; kind: 'link' | 'mention' }[];  // backlink lines (dashed)
 }
+
+// Same empty array every render, so "no link lines" doesn't redraw the graph each time
+const NO_LINK_EDGES: { source: number; target: number; kind: 'link' | 'mention' }[] = [];
 
 // ============================================================
 // COMPONENT
@@ -64,8 +68,9 @@ export default function MindMapGraph({
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
-  selectedNodeId,
+   selectedNodeId,
   filterType,
+  linkEdges = NO_LINK_EDGES,
 }: MindMapGraphProps) {
   // --------------------------------------------------------
   // REFS
@@ -243,7 +248,7 @@ export default function MindMapGraph({
     });
 
     // Build edges from parent references
-    const edges: { source: number; target: number; label?: string }[] = [];
+    const edges: { source: number; target: number; label?: string; kind?: 'link' | 'mention' }[] = [];
     filteredData.forEach(node => {
       const meta = typeof node.metadata === 'string'
         ? JSON.parse(node.metadata)
@@ -262,6 +267,16 @@ export default function MindMapGraph({
         }
       }
     });
+
+       // Backlink lines (dashed) between visible nodes, skipping pairs already joined by a parent line
+    const visibleIds = new Set(filteredData.map(n => n.id));
+    const joined = new Set(edges.map(e => [e.source, e.target].sort().join('-')));
+    for (const l of linkEdges) {
+      const key = [l.source, l.target].sort().join('-');
+      if (!visibleIds.has(l.source) || !visibleIds.has(l.target) || joined.has(key)) continue;
+      joined.add(key);
+      edges.push({ source: l.source, target: l.target, label: '', kind: l.kind });
+    }
 
     // --------------------------------------------------------
     // CREATE CONTAINER GROUP
@@ -314,14 +329,16 @@ export default function MindMapGraph({
         const target = d3Nodes.find(n => n.id === d.target);
         return target?.y || 0;
       })
-      .attr('stroke', '#555')
-      .attr('stroke-width', 2)
+      .attr('stroke', d => (d.kind === 'link' ? '#3b82f6' : d.kind === 'mention' ? '#888' : '#555'))
+      .attr('stroke-width', d => (d.kind ? 1.5 : 2))
+      .attr('stroke-dasharray', d => (d.kind ? '5,4' : null))
       .attr('stroke-opacity', 0.6);
 
   // Right-click edge to edit relationship
     edgeGroups.on('contextmenu', function(event: any, d: any) {
       event.preventDefault();
       event.stopPropagation();
+      if (d.kind) return; // backlink lines have no relationship text to edit
       const sourceNode = filteredData.find(n => n.id === d.source);
       if (sourceNode) {
         callbacksRef.current.onNodeClick(sourceNode);
@@ -644,7 +661,7 @@ export default function MindMapGraph({
 
     
 
-  }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent]);
+  }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges]);
 
   // ============================================================
   // RENDER

@@ -166,8 +166,16 @@ async searchNodes(@Query('q') query: string) {
   getNodeDocument(@Param('id') id: string) { return this.mindmapService.getNodeDocument(Number(id)); }
   @Put('documents/:id')
   updateNodeDocument(@Param('id') id: string, @Body() body: any) { return this.mindmapService.updateNodeDocument(Number(id), body); }
-  @Delete('documents/:id')
+   @Delete('documents/:id')
   deleteNodeDocument(@Param('id') id: string) { return this.mindmapService.deleteNodeDocument(Number(id)); }
+
+  // === BACKLINKS (automatic) ===
+  @Get('node/:id/backlinks')
+  getBacklinks(@Param('id') id: string) { return this.mindmapService.getBacklinks(Number(id)); }
+  @Get('backlinks/edges')
+  getBacklinkEdges() { return this.mindmapService.getBacklinkEdges(); }
+  @Post('backlinks/rebuild')
+  async rebuildBacklinks() { await this.mindmapService.rebuildBacklinks(); return { success: true }; }
   // --- MEDIA UPLOAD ENDPOINT ---
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', {

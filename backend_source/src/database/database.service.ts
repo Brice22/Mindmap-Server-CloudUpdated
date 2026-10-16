@@ -205,7 +205,20 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           PRIMARY KEY (node_id, document_id)
         )`,
-        `CREATE INDEX IF NOT EXISTS idx_node_document_links_doc ON node_document_links(document_id)`,
+              `CREATE INDEX IF NOT EXISTS idx_node_document_links_doc ON node_document_links(document_id)`,
+        // Automatic backlinks: which text (doc, drawing, description, map pin) mentions which node
+        `CREATE TABLE IF NOT EXISTS node_backlinks (
+          id SERIAL PRIMARY KEY,
+          target_node_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          source_type TEXT NOT NULL,
+          source_id INTEGER NOT NULL,
+          source_node_id INTEGER REFERENCES mindmap_nodes(id) ON DELETE SET NULL,
+          kind TEXT NOT NULL DEFAULT 'mention',
+          snippet TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_node_backlinks_target ON node_backlinks(target_node_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_node_backlinks_source ON node_backlinks(source_type, source_id)`,
       ];
 
       for (const sql of additionalTables) {

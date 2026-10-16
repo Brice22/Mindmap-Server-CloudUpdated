@@ -7,6 +7,7 @@ import { useCreateBlockNote, SuggestionMenuController, SideMenuController, SideM
 import { BlockNoteView } from '@blocknote/mantine';
 import { mathSchema, getSlashMenuItems } from './mathBlocks';
 import { NodeDragHandleMenu } from './nodeMenu';
+import { getMentionItems } from './nodeMentions';
 
 interface BlockEditorProps {
   initialContent: any[];
@@ -41,7 +42,12 @@ export default function BlockEditor({ initialContent, onChange, apiUrl }: BlockE
       >
         <SuggestionMenuController
           triggerCharacter="/"
-          getItems={async (query) => filterSuggestionItems(getSlashMenuItems(editor), query)}
+                  getItems={async (query) => filterSuggestionItems(getSlashMenuItems(editor), query)}
+        />
+        {/* @ → link a node (creates a backlink on that node when saved) */}
+        <SuggestionMenuController
+          triggerCharacter="@"
+          getItems={async (query) => getMentionItems(editor, apiUrl, query)}
         />
         {/* ⠿ block menu with "Show on node" for tables */}
         <SideMenuController sideMenu={(props) => <SideMenu {...props} dragHandleMenu={NodeDragHandleMenu} />} />

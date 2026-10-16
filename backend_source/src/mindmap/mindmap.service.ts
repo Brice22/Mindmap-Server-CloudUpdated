@@ -6,6 +6,7 @@ import { SurrealService } from '../surrealdb/surreal.service';
 import { MindsDBService } from '../mindsdb/mindsdb.service';
 import { KeyDBService } from '../keydb/keydb.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { BacklinksService } from './backlinks.service';
 
 @Injectable()
 export class MindmapService {
@@ -24,6 +25,8 @@ private _meili: MeiliSearch | null = null;
     @Inject(MindsDBService) private readonly mindsdb: MindsDBService,
     @Inject(KeyDBService) private readonly cache: KeyDBService,
     @Inject(MetricsService) private readonly metrics: MetricsService,
+    @Inject(BacklinksService) private readonly backlinks: BacklinksService,
+
   ) { // Seed default news sources on first startup
     setTimeout(() => this.seedDefaultSources().catch(() => {}), 5000);}
 
@@ -40,6 +43,7 @@ private _meili: MeiliSearch | null = null;
 
  async deleteNode(id: number) {
     await this.db.query("DELETE FROM mindmap_nodes WHERE id = $1", [id]);
+    this.backlinks.enqueue(() => this.backlinks.afterNodeDeleted(id));
     try { await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id }); } catch {}
     try { await this.client.index("nodes").deleteDocument(id.toString()); } catch {}
     try { await this.cache.invalidateNodeCache(); } catch {}
@@ -86,6 +90,10 @@ private _meili: MeiliSearch | null = null;
     try { await this.cache.invalidateNodeCache(); } catch {}
     try { this.metrics.nodeCreations.inc(); } catch {}
 
+    // Link the new node's text, and find existing texts that already mention its name
+    const created = result.rows[0];
+    this.backlinks.enqueue(() => this.backlinks.afterNodeSaved(created, null));
+
     return result.rows[0];
   }
 
@@ -125,6 +133,10 @@ try {
 }
 
 await this.cache.invalidateNodeCache();
+
+// Re-scan for backlinks only if the name, description, Draw notes or map pins changed
+const updated = result.rows[0];
+this.backlinks.enqueue(() => this.backlinks.afterNodeSaved(updated, row));
 
 return result.rows[0];
 }
@@ -600,7 +612,9 @@ return result.rows[0];
        RETURNING id, node_id, group_name, title, sort_order, created_at, updated_at`,
       [nodeId, body.groupName || 'General', body.title || 'Untitled', JSON.stringify(body.content || [])],
     );
-    return { ...result.rows[0], relation: 'home' };
+    const doc = result.rows[0];
+    this.backlinks.enqueue(() => this.backlinks.reindexDocument(doc.id));
+    return { ...doc, relation: 'home' };
   }
 
   async updateNodeDocument(id: number, updates: any) {
@@ -619,11 +633,16 @@ return result.rows[0];
        RETURNING id, node_id, group_name, title, sort_order, updated_at`,
       values,
     );
+    // Text or home node changed → refresh this document's backlinks
+    if (updates.content !== undefined || updates.title !== undefined || updates.nodeId !== undefined) {
+      this.backlinks.enqueue(() => this.backlinks.reindexDocument(id));
+    }
     return result.rows[0];
   }
 
   async deleteNodeDocument(id: number) {
     await this.db.query('DELETE FROM node_documents WHERE id = $1', [id]);
+    this.backlinks.enqueue(() => this.backlinks.removeDocument(id));
     return { success: true };
   }
 
@@ -636,8 +655,13 @@ return result.rows[0];
     return { success: true };
   }
 
+  // === BACKLINKS ===
+  getBacklinks(nodeId: number) { return this.backlinks.getBacklinks(nodeId); }
+  getBacklinkEdges() { return this.backlinks.getEdges(); }
+  rebuildBacklinks() { return this.backlinks.enqueue(() => this.backlinks.reindexAll()); }
+
   async unlinkDocumentFromNode(nodeId: number, documentId: number) {
-    await this.db.query('DELETE FROM node_document_links WHERE node_id = $1 AND document_id = $2', [nodeId, documentId]);
+  await this.db.query('DELETE FROM node_document_links WHERE node_id = $1 AND document_id = $2', [nodeId, documentId]);
     return { success: true };
   }
 }
