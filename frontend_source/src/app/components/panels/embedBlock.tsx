@@ -12,6 +12,7 @@
 
 import React, { useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
+import { LAYOUT_PROPS } from './blockLayout';
 
 const field: React.CSSProperties = {
   fontFamily: 'monospace', fontSize: 13, background: '#0f0f14', color: '#e5e5e5',
@@ -100,6 +101,7 @@ export const EmbedBlock = createReactBlockSpec(
     propSchema: {
       url: { default: '' },
       height: { default: 400 },
+       ...LAYOUT_PROPS,
     },
     content: 'none',
   },

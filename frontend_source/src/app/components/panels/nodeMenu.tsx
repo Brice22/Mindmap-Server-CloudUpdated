@@ -23,6 +23,7 @@ import {
   useExtensionState,
 } from '@blocknote/react';
 import { NodeFormulaContext, type NodeTableData } from '@/lib/NodeFormulaContext';
+  import { LAYOUT_WIDTHS, LAYOUT_ALIGNS } from './blockLayout';
 
 // Plain text of one table cell (cells hold styled text, links and inline math)
 function cellText(cell: any): string {
@@ -60,6 +61,28 @@ function ShowTableOnNodeItem() {
   );
 }
 
+  // Width and side for charts, graphs, equations and embeds (text can sit beside them)
+  function LayoutItems() {
+    const Components = useComponentsContext()!;
+    const editor = useBlockNoteEditor();
+    const block = useExtensionState(SideMenuExtension, { editor, selector: (s: any) => s?.block }) as any;
+    if (!block || block.props?.width === undefined) return null;
+    const set = (props: Record<string, string>) => editor.updateBlock(block, { props } as any);
+    return (
+      <>
+        {LAYOUT_WIDTHS.map(w => (
+          <Components.Generic.Menu.Item key={w.key} className="bn-menu-item" checked={block.props.width === w.key} onClick={() => set({ width: w.key })}>
+            {w.label}
+          </Components.Generic.Menu.Item>
+        ))}
+        {block.props.width !== 'full' && LAYOUT_ALIGNS.map(a => (
+          <Components.Generic.Menu.Item key={a.key} className="bn-menu-item" checked={block.props.align === a.key} onClick={() => set({ align: a.key })}>
+            {a.label}
+          </Components.Generic.Menu.Item>
+        ))}
+      </>
+    );
+  }
 export function NodeDragHandleMenu() {
   const dict = useDictionary();
   return (
@@ -69,6 +92,7 @@ export function NodeDragHandleMenu() {
       <TableRowHeaderItem>{dict.drag_handle.header_row_menuitem}</TableRowHeaderItem>
       <TableColumnHeaderItem>{dict.drag_handle.header_column_menuitem}</TableColumnHeaderItem>
       <ShowTableOnNodeItem />
+       <LayoutItems />
     </DragHandleMenu>
   );
 }

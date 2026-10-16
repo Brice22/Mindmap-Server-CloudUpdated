@@ -12,6 +12,7 @@
 
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { createReactBlockSpec } from '@blocknote/react';
+import { LAYOUT_PROPS } from './blockLayout';
 import { Chart, registerables } from 'chart.js';
 import JXG from 'jsxgraph';
 import './jsxgraph.css'; // copied from node_modules/jsxgraph/distrib (the package doesn't export its CSS)
@@ -146,6 +147,7 @@ export const ChartBlock = createReactBlockSpec(
       chartType: { default: 'bar' },
       title: { default: '' },
       data: { default: SAMPLE_DATA },
+       ...LAYOUT_PROPS,
     },
     content: 'none',
   },
@@ -204,8 +206,7 @@ function GraphBlockView({ block, editor }: { block: any; editor: any }) {
       JXG.JSXGraph.freeBoard(board);
       el.remove();
     };
-  }, [editing, functions, range]);
-
+  }, [editing, functions, range, block.props.width]);   // redraw when its width changes
   const finish = () => {
     editor.updateBlock(block, { props: draft });
     setEditing(false);
@@ -251,6 +252,7 @@ export const GraphBlock = createReactBlockSpec(
     propSchema: {
       functions: { default: 'sin(x)\nx^2 / 4 - 2' },
       range: { default: '-10, 10, -6, 6' },
+      ...LAYOUT_PROPS,
     },
     content: 'none',
   },

@@ -1,0 +1,29 @@
+/* ============================================================
+   Side-by-side layout in Docs (see blockLayout.ts)
+   A chart / graph / equation / embed narrower than full width floats
+   left or right; the paragraphs after it flow beside it until it ends.
+   Two narrow blocks in a row sit next to each other.
+   ============================================================ */
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width]) {
+  float: left;
+  margin-right: 16px;
+}
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width="75"]) { width: 75%; }
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width="50"]) { width: 50%; }
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width="33"]) { width: 33%; }
+
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width][data-align="right"]) {
+  float: right;
+  margin-right: 0;
+  margin-left: 16px;
+}
+.bn-block-outer:has(> .bn-block > .react-renderer > .bn-block-content[data-width][data-align="center"]) {
+  float: none;
+  margin: 0 auto;
+}
+
+/* A heading always starts below any chart/graph beside the text */
+.bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="heading"]) { clear: both; }
+
+/* The document grows to fit floated blocks at the end */
+.bn-block-group::after { content: ''; display: block; clear: both; }

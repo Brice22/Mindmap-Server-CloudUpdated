@@ -26,12 +26,13 @@
 
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import MindMapGraph from './MindMapGraph';
 import ContextMenu from './components/ContextMenu';
 import NodeWorkspace from './components/NodeWorkspace';
 import NotesPreview from './components/NotesPreview';
 import BacklinksPanel from './components/BacklinksPanel';
+import NodePhotoPanel from './components/NodePhotoPanel';
 import DocumentsPanel from './components/panels/DocumentsPanel';
 import NodeModal from './components/NodeModal';
 import GlobalNavBar from './components/GlobalNavBar';
@@ -195,6 +196,38 @@ export default function Dashboard() {
     }, 500);
     return () => clearTimeout(t);
   }, [nodes, backlinksRefresh]);
+  
+  // --------------------------------------------------------
+  // Remember where you were (in this browser): view, selected node, open workspace.
+  // A refresh puts you back there. (Graph zoom and the open doc are remembered too.)
+  // --------------------------------------------------------
+  const restoredRef = useRef(false);
+  useEffect(() => {
+    if (restoredRef.current || nodes.length === 0) return;
+    restoredRef.current = true;
+    try {
+      const saved = JSON.parse(localStorage.getItem('hserver:ui') || 'null');
+      if (!saved) return;
+      if (saved.view) setActiveView(saved.view);
+      const sel = nodes.find(n => n.id === saved.selectedId);
+      if (sel) setSelectedNode(sel);
+      const ws = nodes.find(n => n.id === saved.workspaceId);
+      if (ws) setWorkspaceNode(ws);
+      if (typeof saved.rightPanelOpen === 'boolean') setRightPanelOpen(saved.rightPanelOpen);
+    } catch {}
+  }, [nodes]);
+
+  useEffect(() => {
+    if (!restoredRef.current) return;   // don't overwrite the saved spot before it's been restored
+    try {
+      localStorage.setItem('hserver:ui', JSON.stringify({
+        view: activeView,
+        selectedId: selectedNode?.id ?? null,
+        workspaceId: workspaceNode?.id ?? null,
+        rightPanelOpen,
+      }));
+    } catch {}
+  }, [activeView, selectedNode?.id, workspaceNode?.id, rightPanelOpen]);
 
   // Listen for edge right-click
   useEffect(() => {
@@ -405,24 +438,29 @@ export default function Dashboard() {
         } as any);
         break;
 
-      case 'addFormula':
+       case 'addDocs':
+        setWorkspaceOpenPanel('docs');
         setWorkspaceNode(node);
-        // WorkSpace will handle adding formula panel
-        break;
-
-      case 'addChart':
-        setWorkspaceNode(node);
-        // WorkSpace will handle adding chart panel
         break;
 
      
 
-      case 'addExcalidraw':
+           case 'addExcalidraw':
+        setWorkspaceOpenPanel('excalidraw');
         setWorkspaceNode(node);
         break;
 
       case 'addMap':
+        setWorkspaceOpenPanel('map');
         setWorkspaceNode(node);
+        break;
+
+      case 'togglePhotoOnNode':
+        await updateNode(node.id, { metadata: { ...meta, photoOnNode: meta.photoOnNode === false } } as any);
+        break;
+
+      case 'removePhoto':
+        await updateNode(node.id, { metadata: { ...meta, photo: null } } as any);
         break;
 
       case 'bookmark': {
@@ -471,6 +509,15 @@ export default function Dashboard() {
         if (action.startsWith('setShape_')) {
           const shape = action.replace('setShape_', '');
           await updateNode(node.id, { metadata: { ...meta, shape } } as any);
+                  } else if (action.startsWith('setColor_')) {
+          const color = action.replace('setColor_', '');
+          await updateNode(node.id, { metadata: { ...meta, color: color === 'reset' ? null : color } } as any);
+        } else if (action.startsWith('setLineColor_')) {
+          const lineColor = action.replace('setLineColor_', '');
+          await updateNode(node.id, { metadata: { ...meta, lineColor: lineColor === 'reset' ? null : lineColor } } as any);
+        } else if (action.startsWith('setPhoto_')) {
+          const photo = action.replace('setPhoto_', '');
+          await updateNode(node.id, { metadata: { ...meta, photo, photoOnNode: true } } as any);
         } else if (action.startsWith('setSize_')) {
           const nodeSize = action.replace('setSize_', '');
           await updateNode(node.id, { metadata: { ...meta, nodeSize } } as any);
@@ -1037,6 +1084,9 @@ export default function Dashboard() {
                     onUpdateNode={updateNode}
                   />
 
+                  {/* Photo — above the Quick Notes */}
+                  <NodePhotoPanel node={selectedNode} onUpdateNode={updateNode} />
+                  
                   {/* Quick Notes — preview of the node's Draw (Excalidraw) notes; click to edit */}
                   <h4 style={{ margin: '0 0 10px 0' }}>Quick Notes</h4>
                   <NotesPreview

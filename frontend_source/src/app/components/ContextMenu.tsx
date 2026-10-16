@@ -31,6 +31,19 @@
 import React, { useEffect, useRef, useState } from 'react';
 import type { Node } from '@/lib/types';
 
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+// Shapes offered in the Shape ► submenu (drawn in MindMapGraph)
+const SHAPES: { key: string; icon: string }[] = [
+  { key: 'circle', icon: '⭕' }, { key: 'ellipse', icon: '⬭' }, { key: 'square', icon: '⬛' },
+  { key: 'rectangle', icon: '▭' }, { key: 'pill', icon: '💊' }, { key: 'diamond', icon: '🔷' },
+  { key: 'triangle', icon: '🔺' }, { key: 'pentagon', icon: '⬟' }, { key: 'hexagon', icon: '⬡' },
+  { key: 'octagon', icon: '🛑' }, { key: 'star', icon: '⭐' },
+];
+
+// Colour swatches for nodes and lines
+const SWATCHES = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#22c55e', '#14b8a6', '#3b82f6', '#6366f1', '#a855f7', '#ec4899', '#ffffff', '#6b7280'];
+
 // ============================================================
 // MENU ITEM INTERFACE
 // ============================================================
@@ -68,6 +81,7 @@ export default function ContextMenu({
 }: ContextMenuProps) {
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState<string | null>(null);
+    const colorTimer = useRef<any>(null);
 
 
   // --------------------------------------------------------
@@ -165,16 +179,24 @@ export default function ContextMenu({
       action: 'submenu_shape',
     },
     {
-      label: `📐 Size ►`,
+           label: `📐 Size ►`,
       action: 'submenu_size',
+    },
+    {
+      label: `🎨 Color ►`,
+      action: 'submenu_color',
+    },
+    {
+      label: `🖼️ Photo ►`,
+      action: 'submenu_photo',
       divider: true,
     },
 
     // === FEATURES ===
-    { label: '∑ Add Formula', icon: '∑', action: 'addFormula' },
-    { label: '📊 Add Chart', icon: '📊', action: 'addChart', divider: true },
-    { label: '✏️ Add Whiteboard', icon: '✏️', action: 'addExcalidraw' },
-    { label: '🗺️ Add Map', icon: '🗺️', action: 'addMap', divider: true },
+      // === OPEN IN WORKSPACE ===
+    { label: '📄 Open Docs', icon: '📄', action: 'addDocs' },
+    { label: '✏️ Open Draw', icon: '✏️', action: 'addExcalidraw' },
+    { label: '🗺️ Open Map', icon: '🗺️', action: 'addMap', divider: true },
 
     // === STATUS ===
     {
@@ -316,7 +338,7 @@ export default function ContextMenu({
           {/* Shape submenu */}
           {item.action === 'submenu_shape' && submenu === 'submenu_shape' && (
             <div style={{ background: '#252525', padding: '4px 0', margin: '0 8px', borderRadius: '4px' }}>
-              {['circle', 'rectangle', 'diamond', 'hexagon'].map(shape => (
+              {SHAPES.map(({ key: shape, icon }) => (
                 <div key={shape} onClick={() => { onAction(`setShape_${shape}`, node); onClose(); }}
                   style={{
                     padding: '6px 16px', cursor: 'pointer', fontSize: '12px',
@@ -325,7 +347,7 @@ export default function ContextMenu({
                   }}
                   onMouseEnter={e => { e.currentTarget.style.background = '#3d3d3d'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
-                  {shape === 'circle' ? '⭕' : shape === 'rectangle' ? '⬜' : shape === 'diamond' ? '🔷' : '⬡'} {shape}
+                  {icon} {shape}
                 </div>
               ))}
             </div>
@@ -345,6 +367,66 @@ export default function ContextMenu({
                   {size === 'small' ? '🔹' : size === 'medium' ? '🔸' : '🔶'} {size}
                 </div>
               ))}
+            </div>
+          )}
+                    {/* Color submenu — node fill, and the line to its parent */}
+          {item.action === 'submenu_color' && submenu === 'submenu_color' && (
+            <div style={{ background: '#252525', padding: '6px 10px', margin: '0 8px', borderRadius: '4px', fontSize: 11, color: '#999' }}>
+              {[{ label: 'Node', prefix: 'setColor_', current: meta.color },
+                ...(meta.parent ? [{ label: 'Line to parent', prefix: 'setLineColor_', current: meta.lineColor }] : [])].map(row => (
+                <div key={row.prefix} style={{ marginBottom: 6 }}>
+                  <div style={{ marginBottom: 3 }}>{row.label}</div>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 4, alignItems: 'center' }}>
+                    {SWATCHES.map(c => (
+                      <span key={c} title={c} onClick={() => { onAction(`${row.prefix}${c}`, node); onClose(); }}
+                        style={{ width: 16, height: 16, borderRadius: 3, background: c, cursor: 'pointer',
+                          outline: row.current === c ? '2px solid #0070f3' : '1px solid #444' }} />
+                    ))}
+                    <input type="color" title="Custom colour" defaultValue={row.current || '#888888'}
+                      onChange={e => {
+                        // The picker fires continuously while dragging — save once it settles
+                        const value = e.target.value;
+                        clearTimeout(colorTimer.current);
+                        colorTimer.current = setTimeout(() => onAction(`${row.prefix}${value}`, node), 400);
+                      }}
+                      style={{ width: 22, height: 18, padding: 0, border: 'none', background: 'none', cursor: 'pointer' }} />
+                    <span onClick={() => { onAction(`${row.prefix}reset`, node); onClose(); }}
+                      style={{ cursor: 'pointer', color: '#ccc', marginLeft: 2 }}>Reset</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+          {/* Photo submenu — upload, show inside the node, remove */}
+          {item.action === 'submenu_photo' && submenu === 'submenu_photo' && (
+            <div style={{ background: '#252525', padding: '4px 0', margin: '0 8px', borderRadius: '4px', fontSize: 12 }}>
+              <label style={{ display: 'block', padding: '6px 16px', cursor: 'pointer', color: '#ccc' }}>
+                📤 {meta.photo ? 'Change photo…' : 'Upload photo…'}
+                <input type="file" accept="image/*" style={{ display: 'none' }}
+                  onChange={async e => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const form = new FormData();
+                    form.append('file', file);
+                    try {
+                      const res = await fetch(`${API_URL}/api/mindmap/upload`, { method: 'POST', body: form });
+                      if (res.ok) onAction(`setPhoto_${(await res.json()).url}`, node);
+                    } catch {}
+                    onClose();
+                  }} />
+              </label>
+              {meta.photo && (
+                <>
+                  <div onClick={() => { onAction('togglePhotoOnNode', node); onClose(); }}
+                    style={{ padding: '6px 16px', cursor: 'pointer', color: '#ccc' }}>
+                    {meta.photoOnNode === false ? '👁️ Show on node' : '🙈 Hide on node (keep in Inspector)'}
+                  </div>
+                  <div onClick={() => { onAction('removePhoto', node); onClose(); }}
+                    style={{ padding: '6px 16px', cursor: 'pointer', color: '#ef4444' }}>
+                    ✕ Remove photo
+                  </div>
+                </>
+              )}
             </div>
           )}
           {item.divider && (

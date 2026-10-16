@@ -2,6 +2,7 @@
 
 import '@blocknote/core/fonts/inter.css';
 import '@blocknote/mantine/style.css';
+import './blockLayout.css';   // side-by-side charts/graphs/equations
 import { filterSuggestionItems } from '@blocknote/core';
 import { useCreateBlockNote, SuggestionMenuController, SideMenuController, SideMenu } from '@blocknote/react';
 import { BlockNoteView } from '@blocknote/mantine';

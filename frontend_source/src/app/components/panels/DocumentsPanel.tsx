@@ -156,11 +156,20 @@ export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: Doc
         const list = await loadList();
         if (cancelled) return;
         setDocs(list);
-        setActiveId(prev => prev ?? list[0]?.id ?? null);
-      } catch {}
+        // Reopen the document you had open last time (remembered in this browser)
+        let remembered: number | null = null;
+        try { remembered = Number(localStorage.getItem(`hserver:doc:${nodeId}`)) || null; } catch {}
+        setActiveId(prev => prev ?? (list.some(d => d.id === remembered) ? remembered : list[0]?.id ?? null));
+    } catch {}
     })();
     return () => { cancelled = true; };
   }, [nodeId]);
+
+    // Remember which document is open for this node
+  useEffect(() => {
+    if (activeId == null) return;
+    try { localStorage.setItem(`hserver:doc:${nodeId}`, String(activeId)); } catch {}
+  }, [activeId, nodeId]);
 
   // Load the selected document's content
   useEffect(() => {

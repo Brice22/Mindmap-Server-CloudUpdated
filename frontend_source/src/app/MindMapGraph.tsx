@@ -35,6 +35,60 @@ import type { Node, DragState } from '@/lib/types';
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'; // WebSocket server URL (adjust as needed)
 const DRAG_THRESHOLD = 5;  // Pixels mouse must move to count as drag
 
+// Saved photos are stored as /uploads/... on the backend
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+export function photoUrl(photo?: string | null) {
+  if (!photo) return '';
+  return photo.startsWith('/uploads/') ? `${API_URL}${photo}` : photo;
+}
+
+// Graph zoom/pan is remembered in this browser, so a refresh puts you back where you were
+const TRANSFORM_KEY = 'hserver:graphTransform';
+function loadTransform(): d3.ZoomTransform {
+  try {
+    const t = JSON.parse(localStorage.getItem(TRANSFORM_KEY) || 'null');
+    if (t && [t.x, t.y, t.k].every((n: any) => Number.isFinite(n))) return d3.zoomIdentity.translate(t.x, t.y).scale(t.k);
+  } catch {}
+  return d3.zoomIdentity;
+}
+
+// ------------------------------------------------------------
+// NODE SHAPES — every shape is drawn around (0,0) with "radius" r
+// ------------------------------------------------------------
+export const NODE_SHAPES = ['circle', 'ellipse', 'square', 'rectangle', 'pill', 'diamond', 'triangle', 'pentagon', 'hexagon', 'octagon', 'star'] as const;
+
+function polygonPoints(sides: number, r: number, rotate = -Math.PI / 2) {
+  return Array.from({ length: sides }, (_, i) => {
+    const a = rotate + (2 * Math.PI * i) / sides;
+    return `${r * Math.cos(a)},${r * Math.sin(a)}`;
+  }).join(' ');
+}
+
+function starPoints(r: number) {
+  return Array.from({ length: 10 }, (_, i) => {
+    const a = -Math.PI / 2 + (Math.PI * i) / 5;
+    const rr = i % 2 === 0 ? r * 1.35 : r * 0.6;
+    return `${rr * Math.cos(a)},${rr * Math.sin(a)}`;
+  }).join(' ');
+}
+
+// Appends the shape to `g` (a node group or a clipPath) and returns it
+function appendShape(g: any, shape: string, r: number) {
+  switch (shape) {
+    case 'ellipse': return g.append('ellipse').attr('rx', r * 1.5).attr('ry', r);
+    case 'square': return g.append('rect').attr('x', -r).attr('y', -r).attr('width', r * 2).attr('height', r * 2).attr('rx', 3);
+    case 'rectangle': return g.append('rect').attr('x', -r * 1.4).attr('y', -r).attr('width', r * 2.8).attr('height', r * 2).attr('rx', 4);
+    case 'pill': return g.append('rect').attr('x', -r * 1.6).attr('y', -r * 0.8).attr('width', r * 3.2).attr('height', r * 1.6).attr('rx', r * 0.8);
+    case 'diamond': return g.append('polygon').attr('points', `0,${-r * 1.3} ${r * 1.3},0 0,${r * 1.3} ${-r * 1.3},0`);
+    case 'triangle': return g.append('polygon').attr('points', polygonPoints(3, r * 1.4)).attr('transform', `translate(0,${r * 0.2})`);
+    case 'pentagon': return g.append('polygon').attr('points', polygonPoints(5, r * 1.2));
+    case 'hexagon': return g.append('polygon').attr('points', polygonPoints(6, r * 1.2));
+    case 'octagon': return g.append('polygon').attr('points', polygonPoints(8, r * 1.15, -Math.PI / 8));
+    case 'star': return g.append('polygon').attr('points', starPoints(r));
+    default: return g.append('circle').attr('r', r);
+  }
+}
+
 // Node colors by type
 const TYPE_COLORS: Record<string, string> = {
   person: '#3b82f6',    // Blue
@@ -79,7 +133,8 @@ export default function MindMapGraph({
   // --------------------------------------------------------
   const svgRef = useRef<SVGSVGElement>(null);        // The SVG element
   const socketRef = useRef<Socket | null>(null);     // WebSocket connection
-  const transformRef = useRef<d3.ZoomTransform>(d3.zoomIdentity); // Current zoom state
+  const transformRef = useRef<d3.ZoomTransform>(typeof window !== 'undefined' ? loadTransform() : d3.zoomIdentity); // Current zoom state (restored after refresh)
+  const saveTransformTimer = useRef<any>(null);
   const nodePositionsRef = useRef<Record<number, { x: number; y: number }>>({});
   const dragStateRef = useRef<DragState>({           // Drag tracking
     isDragging: false,
@@ -248,7 +303,7 @@ export default function MindMapGraph({
     });
 
     // Build edges from parent references
-    const edges: { source: number; target: number; label?: string; kind?: 'link' | 'mention' }[] = [];
+    const edges: { source: number; target: number; label?: string; kind?: 'link' | 'mention'; color?: string }[] = [];
     filteredData.forEach(node => {
       const meta = typeof node.metadata === 'string'
         ? JSON.parse(node.metadata)
@@ -263,6 +318,7 @@ export default function MindMapGraph({
             source: node.id,
             target: parent.id,
             label: meta.linkText || '',
+             color: meta.lineColor || undefined,   // colour of the line to its parent
           });
         }
       }
@@ -295,6 +351,14 @@ export default function MindMapGraph({
       .on('zoom', (event) => {
         transformRef.current = event.transform;
         container.attr('transform', event.transform.toString());
+                // Remember zoom/pan (saved half a second after you stop moving)
+        clearTimeout(saveTransformTimer.current);
+        saveTransformTimer.current = setTimeout(() => {
+          try {
+            const t = event.transform;
+            localStorage.setItem(TRANSFORM_KEY, JSON.stringify({ x: t.x, y: t.y, k: t.k }));
+          } catch {}
+        }, 500);
       });
 
     svg.call(zoom);
@@ -329,10 +393,10 @@ export default function MindMapGraph({
         const target = d3Nodes.find(n => n.id === d.target);
         return target?.y || 0;
       })
-      .attr('stroke', d => (d.kind === 'link' ? '#3b82f6' : d.kind === 'mention' ? '#888' : '#555'))
+      .attr('stroke', d => (d.kind === 'link' ? '#3b82f6' : d.kind === 'mention' ? '#888' : d.color || '#555'))
       .attr('stroke-width', d => (d.kind ? 1.5 : 2))
       .attr('stroke-dasharray', d => (d.kind ? '5,4' : null))
-      .attr('stroke-opacity', 0.6);
+      .attr('stroke-opacity', d => (d.color ? 0.9 : 0.6));
 
   // Right-click edge to edit relationship
     edgeGroups.on('contextmenu', function(event: any, d: any) {
@@ -396,39 +460,28 @@ export default function MindMapGraph({
       const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
       const shape = meta.shape || 'circle';
       const r = SIZE_MAP[meta.nodeSize || 'medium'] || 25;
-      const fill = TYPE_COLORS[meta.type] || TYPE_COLORS.default;
+      const fill = meta.color || TYPE_COLORS[meta.type] || TYPE_COLORS.default;   // custom colour wins      
       const isSelected = d.id === selectedNodeId;
       const stroke = isSelected ? '#fff' : 'transparent';
       const strokeWidth = isSelected ? 3 : 0;
       const filter = isSelected ? 'drop-shadow(0 0 10px white)' : 'none';
       const g = d3.select(this);
 
-      if (shape === 'rectangle') {
-        g.append('rect')
-          .attr('x', -r * 1.4).attr('y', -r)
-          .attr('width', r * 2.8).attr('height', r * 2)
-          .attr('rx', 4)
-          .attr('fill', fill).attr('stroke', stroke)
-          .attr('stroke-width', strokeWidth).attr('filter', filter);
-      } else if (shape === 'diamond') {
-        g.append('polygon')
-          .attr('points', `0,${-r * 1.3} ${r * 1.3},0 0,${r * 1.3} ${-r * 1.3},0`)
-          .attr('fill', fill).attr('stroke', stroke)
-          .attr('stroke-width', strokeWidth).attr('filter', filter);
-      } else if (shape === 'hexagon') {
-        const pts = [0,1,2,3,4,5].map(i => {
-          const angle = (Math.PI / 3) * i - Math.PI / 2;
-          return `${r * 1.2 * Math.cos(angle)},${r * 1.2 * Math.sin(angle)}`;
-        }).join(' ');
-        g.append('polygon')
-          .attr('points', pts)
-          .attr('fill', fill).attr('stroke', stroke)
-          .attr('stroke-width', strokeWidth).attr('filter', filter);
-      } else {
-        g.append('circle')
-          .attr('r', r)
-          .attr('fill', fill).attr('stroke', stroke)
-          .attr('stroke-width', strokeWidth).attr('filter', filter);
+          appendShape(g, shape, r)
+        .attr('fill', fill).attr('stroke', stroke)
+        .attr('stroke-width', strokeWidth).attr('filter', filter);
+
+      // Photo inside the node (cropped to its shape)
+      if (meta.photo && meta.photoOnNode !== false) {
+        const clipId = `clip-photo-${d.id}`;
+        appendShape(g.append('clipPath').attr('id', clipId), shape, r);
+        g.append('image')
+          .attr('href', photoUrl(meta.photo))
+          .attr('x', -r * 1.6).attr('y', -r * 1.4)
+          .attr('width', r * 3.2).attr('height', r * 2.8)
+          .attr('preserveAspectRatio', 'xMidYMid slice')
+          .attr('clip-path', `url(#${clipId})`)
+          .style('pointer-events', 'none');
       }
 
       // Formula/text/table preview on node
@@ -480,26 +533,7 @@ export default function MindMapGraph({
       }
     });
 
-    // --------------------------------------------------------
-    // NODE PHOTO (hidden by default, toggled on click)
-    // --------------------------------------------------------
-    nodeGroups.append('clipPath')
-      .attr('id', d => `clip-photo-${d.id}`)
-      .append('circle')
-      .attr('r', 20);
 
-    nodeGroups.append('image')
-      .attr('x', -20)
-      .attr('y', -20)
-      .attr('width', 40)
-      .attr('height', 40)
-      .attr('clip-path', d => `url(#clip-photo-${d.id})`)
-      .attr('href', (d: any) => {
-        const m = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
-        return m.photo || '';
-      })
-      .style('display', 'none')
-      .attr('class', 'node-photo');
 
     // --------------------------------------------------------
     // NODE LABEL
@@ -615,16 +649,12 @@ export default function MindMapGraph({
       
       console.log('[MindMapGraph] Node clicked:', d.name);
 
-      // Toggle photo on this node
-      const photoEl = d3.select(this).select('.node-photo');
-      const isVisible = photoEl.style('display') !== 'none';
-      
-      // Hide all photos first, reset all opacity
-      container.selectAll('.node-photo').style('display', 'none');
-      container.selectAll('g[id^="node-group-"]').style('opacity', 1);
-      
-      if (!isVisible) {
-        photoEl.style('display', 'block');
+     // Toggle highlighting of this node's parent and children
+      const isHighlighted = d3.select(this).classed('highlighted');
+      container.selectAll('g[id^="node-group-"]').classed('highlighted', false).style('opacity', 1);
+
+      if (!isHighlighted) {
+        d3.select(this).classed('highlighted', true);
         
         // Highlight adjacent nodes (parent + children), dim the rest
         const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};

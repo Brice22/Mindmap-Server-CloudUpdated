@@ -26,7 +26,8 @@ import {
   getDefaultReactSlashMenuItems,
   type DefaultReactSuggestionItem,
 } from '@blocknote/react';
-import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
+import { NodeFormulaContext } from '@/lib/NodeFormulaContext'; 
+import { LAYOUT_PROPS } from './blockLayout';
 import { ChartBlock, GraphBlock } from './chartBlocks';
 import { EmbedBlock } from './embedBlock';
 import { NodeMention } from './nodeMentions';
@@ -113,7 +114,7 @@ function MathBlockView({ block, editor }: { block: any; editor: any }) {
 const MathBlock = createReactBlockSpec(
   {
     type: 'math',
-    propSchema: { latex: { default: '' } },
+    propSchema: { latex: { default: '' }, ...LAYOUT_PROPS },
     content: 'none',
   },
   {
