@@ -30,6 +30,7 @@ import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import { ChartBlock, GraphBlock } from './chartBlocks';
 import { EmbedBlock } from './embedBlock';
 import { NodeMention } from './nodeMentions';
+import { PlaceMention } from './placeMention';
 
 // Render LaTeX to HTML; bad LaTeX shows in red instead of crashing
 function renderLatex(latex: string, displayMode: boolean) {
@@ -188,7 +189,7 @@ const InlineMath = createReactInlineContentSpec(
 // ------------------------------------------------------------
 export const mathSchema = BlockNoteSchema.create({
   blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock(), embed: EmbedBlock() },
-    inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath, nodeMention: NodeMention },
+    inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath, nodeMention: NodeMention, place: PlaceMention },
 });
 
 // ------------------------------------------------------------
@@ -234,7 +235,15 @@ export function getSlashMenuItems(editor: any): DefaultReactSuggestionItem[] {
       aliases: ['embed', 'iframe', 'link', 'youtube', 'desmos', 'geogebra', 'web'],
       group: 'Math',
       icon: <span style={{ fontSize: 16 }}>🌐</span>,
-      onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'embed' } as any),
+           onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'embed' } as any),
+    },
+    {
+      title: 'Place',
+      subtext: 'Search a city, address or venue — shows on Maps',
+      aliases: ['place', 'location', 'map', 'address', 'city', 'pin'],
+      group: 'Math',
+      icon: <span style={{ fontSize: 16 }}>📍</span>,
+      onItemClick: () => editor.insertInlineContent([{ type: 'place', props: { name: '', lat: 0, lng: 0 } }, ' ']),
     },
   ];
   // Math items first so typing /graph picks Graph, not Paragraph (which also contains "graph")

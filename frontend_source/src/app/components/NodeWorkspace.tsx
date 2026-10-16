@@ -240,15 +240,15 @@ export default function NodeWorkspace({
 
      case 'map':
         return (
-          <MapView
+                   <MapView
             key={`map-${panel.id}`}
-            nodes={[node]}
-            markers={(meta.mapMarkers || [])}
-            onAddMarker={(nodeId, lat, lng) => {
-              const markers = [...(metaRef.current.mapMarkers || []), { nodeId, lat, lng }];
-              saveMeta({ mapMarkers: markers });
-            }}
-            onNodeClick={() => {}}
+            node={node}
+            area={metaRef.current.mapArea || null}
+            markers={metaRef.current.mapMarkers || []}
+            layers={metaRef.current.mapLayers}
+            onSaveArea={mapArea => saveMeta({ mapArea })}          // null removes the area
+            onSaveMarkers={mapMarkers => saveMeta({ mapMarkers })}
+            onSaveLayers={mapLayers => saveMeta({ mapLayers })}
           />
         );
 

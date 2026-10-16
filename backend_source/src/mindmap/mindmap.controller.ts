@@ -169,13 +169,30 @@ async searchNodes(@Query('q') query: string) {
    @Delete('documents/:id')
   deleteNodeDocument(@Param('id') id: string) { return this.mindmapService.deleteNodeDocument(Number(id)); }
 
+  // === TRASH (deleted nodes and documents, kept 30 days) ===
+  @Get('trash')
+  getTrash() { return this.mindmapService.getTrash(); }
+  @Post('trash/:id/restore')
+  restoreFromTrash(@Param('id') id: string) { return this.mindmapService.restoreFromTrash(Number(id)); }
+  @Delete('trash/:id')
+  deleteFromTrash(@Param('id') id: string) { return this.mindmapService.deleteFromTrash(Number(id)); }
+  @Delete('trash')
+  emptyTrash() { return this.mindmapService.emptyTrash(); }
   // === BACKLINKS (automatic) ===
   @Get('node/:id/backlinks')
   getBacklinks(@Param('id') id: string) { return this.mindmapService.getBacklinks(Number(id)); }
   @Get('backlinks/edges')
   getBacklinkEdges() { return this.mindmapService.getBacklinkEdges(); }
-  @Post('backlinks/rebuild')
+   @Post('backlinks/rebuild')
   async rebuildBacklinks() { await this.mindmapService.rebuildBacklinks(); return { success: true }; }
+
+  // === MAP: place search + 📍 places from Docs ===
+  @Get('geocode')
+  searchPlaces(@Query('q') q: string) { return this.mindmapService.searchPlaces(q); }
+  @Get('places')
+  getAllPlaces() { return this.mindmapService.getPlaces(); }
+  @Get('node/:id/places')
+  getNodePlaces(@Param('id') id: string) { return this.mindmapService.getPlaces(Number(id)); }
   // --- MEDIA UPLOAD ENDPOINT ---
   @Post('upload')
   @UseInterceptors(FileInterceptor('file', {

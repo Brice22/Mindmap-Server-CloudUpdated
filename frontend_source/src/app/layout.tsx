@@ -14,7 +14,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="dark">
 <head>
-<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css" />
 <link rel="manifest" href="/manifest.json" />
 <meta name="theme-color" content="#0070f3" />
 <meta name="apple-mobile-web-app-capable" content="yes" />

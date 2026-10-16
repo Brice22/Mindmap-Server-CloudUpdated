@@ -7,6 +7,8 @@ import { MindsDBService } from '../mindsdb/mindsdb.service';
 import { KeyDBService } from '../keydb/keydb.service';
 import { MetricsService } from '../metrics/metrics.service';
 import { BacklinksService } from './backlinks.service';
+import { GeocodeService } from './geocode.service';
+import { TrashService } from './trash.service';
 
 @Injectable()
 export class MindmapService {
@@ -26,6 +28,8 @@ private _meili: MeiliSearch | null = null;
     @Inject(KeyDBService) private readonly cache: KeyDBService,
     @Inject(MetricsService) private readonly metrics: MetricsService,
     @Inject(BacklinksService) private readonly backlinks: BacklinksService,
+    @Inject(GeocodeService) private readonly geocoder: GeocodeService,
+    @Inject(TrashService) private readonly trash: TrashService,
 
   ) { // Seed default news sources on first startup
     setTimeout(() => this.seedDefaultSources().catch(() => {}), 5000);}
@@ -42,6 +46,7 @@ private _meili: MeiliSearch | null = null;
   }
 
  async deleteNode(id: number) {
+    await this.trash.saveNode(id);   // keep a copy in the Trash for 30 days
     await this.db.query("DELETE FROM mindmap_nodes WHERE id = $1", [id]);
     this.backlinks.enqueue(() => this.backlinks.afterNodeDeleted(id));
     try { await this.neo4j.write("MATCH (n:Node {pgId: $id}) DETACH DELETE n", { id }); } catch {}
@@ -641,6 +646,7 @@ return result.rows[0];
   }
 
   async deleteNodeDocument(id: number) {
+    await this.trash.saveDocument(id);   // keep a copy in the Trash for 30 days
     await this.db.query('DELETE FROM node_documents WHERE id = $1', [id]);
     this.backlinks.enqueue(() => this.backlinks.removeDocument(id));
     return { success: true };
@@ -660,6 +666,31 @@ return result.rows[0];
   getBacklinkEdges() { return this.backlinks.getEdges(); }
   rebuildBacklinks() { return this.backlinks.enqueue(() => this.backlinks.reindexAll()); }
 
+   // === TRASH ===
+  getTrash() { return this.trash.list(); }
+  deleteFromTrash(id: number) { return this.trash.deleteForever(id); }
+  emptyTrash() { return this.trash.empty(); }
+
+  async restoreFromTrash(trashId: number) {
+    const { type, row } = await this.trash.restore(trashId);
+    if (type === 'node') {
+      // Back into search, the graph database and backlinks
+      try { await this.client.index('nodes').addDocuments([{ id: row.id, name: row.name, description: row.description }]); } catch {}
+      const meta = typeof row.metadata === 'string' ? JSON.parse(row.metadata || '{}') : row.metadata || {};
+      if (meta.parent) await this.syncRelationship(row.id, meta.parent);
+      try { await this.cache.invalidateNodeCache(); } catch {}
+      this.backlinks.enqueue(() => this.backlinks.afterNodeSaved(row, null));
+      const docs = await this.db.query('SELECT id FROM node_documents WHERE node_id = $1', [row.id]);
+      for (const d of docs.rows) this.backlinks.enqueue(() => this.backlinks.reindexDocument(d.id));
+    } else {
+      this.backlinks.enqueue(() => this.backlinks.reindexDocument(row.id));
+    }
+    return { success: true, type, id: row.id };
+  }
+
+  // === MAP ===
+  searchPlaces(q: string) { return this.geocoder.search(q); }
+  getPlaces(nodeId?: number) { return this.backlinks.getPlaces(nodeId); }
   async unlinkDocumentFromNode(nodeId: number, documentId: number) {
   await this.db.query('DELETE FROM node_document_links WHERE node_id = $1 AND document_id = $2', [nodeId, documentId]);
     return { success: true };

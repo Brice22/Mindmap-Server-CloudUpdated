@@ -6,6 +6,9 @@
 //   - Draw notes (Excalidraw text)    source_type 'drawing'
 //   - Node descriptions               source_type 'description'
 //   - Map pins that point at a node   source_type 'map'
+//   - 📍 places in Docs (/place) that fall inside a node's map area
+//     (e.g. a venue inside "Chicago") — source_type 'doc', kind 'mention'
+// Places from Docs are also stored in doc_places for the Map overlays.
 // Two kinds of link:
 //   - 'link'    explicit: an @mention in Docs, [[Node Name]] typed
 //               anywhere, or a map pin for that node
@@ -25,7 +28,8 @@ import { DatabaseService } from '../database/database.service';
 type SourceType = 'doc' | 'drawing' | 'description' | 'map';
 type Kind = 'link' | 'mention';
 
-interface Target { id: number; name: string; names: string[]; re: RegExp | null }
+interface Target { id: number; name: string; names: string[]; re: RegExp | null; bbox: [number, number, number, number] | null }
+export interface DocPlace { name: string; lat: number; lng: number }
 interface Found { targetId: number; kind: Kind; snippet: string }
 
 const MIN_MENTION_LENGTH = 3;
@@ -45,9 +49,10 @@ function snippetAt(text: string, index: number, length: number) {
 // TEXT EXTRACTION
 // ------------------------------------------------------------
 // BlockNote document → plain text + ids of @mentioned nodes
-export function extractDocText(blocks: any[]): { text: string; mentionIds: number[] } {
+export function extractDocText(blocks: any[]): { text: string; mentionIds: number[]; places: DocPlace[] } {
   const parts: string[] = [];
   const mentionIds: number[] = [];
+  const places: DocPlace[] = [];
 
   const inline = (content: any): string => {
     if (!content) return '';
@@ -61,7 +66,14 @@ export function extractDocText(blocks: any[]): { text: string; mentionIds: numbe
         if (ic.props?.nodeId) mentionIds.push(Number(ic.props.nodeId));
         return ic.props?.name || '';
       }
-      if (ic.type === 'inlineMath') return ic.props?.latex || '';
+           if (ic.type === 'inlineMath') return ic.props?.latex || '';
+      if (ic.type === 'place') {
+        const lat = Number(ic.props?.lat), lng = Number(ic.props?.lng);
+        if (ic.props?.name && Number.isFinite(lat) && Number.isFinite(lng) && (lat || lng)) {
+          places.push({ name: String(ic.props.name), lat, lng });
+        }
+        return ic.props?.name || '';
+      }
       return '';
     }).join('');
   };
@@ -84,7 +96,7 @@ export function extractDocText(blocks: any[]): { text: string; mentionIds: numbe
     }
   };
   walk(Array.isArray(blocks) ? blocks : []);
-  return { text: parts.join('\n'), mentionIds };
+  return { text: parts.join('\n'), mentionIds, places };
 }
 
 // Excalidraw drawing → text from its text boxes
@@ -118,7 +130,9 @@ export class BacklinksService {
   // MATCHING
   // ------------------------------------------------------------
   private async loadTargets(): Promise<Target[]> {
-    const res = await this.db.query(`SELECT id, name, metadata->'aliases' AS aliases FROM mindmap_nodes`);
+    const res = await this.db.query(
+      `SELECT id, name, metadata->'aliases' AS aliases, metadata->'mapArea'->'bbox' AS bbox FROM mindmap_nodes`,
+    );
     return res.rows
       .filter((r: any) => r.name && r.name.trim())
       .map((r: any) => {
@@ -127,9 +141,11 @@ export class BacklinksService {
         const names = [...new Set([name, ...aliases])];
         // Whole-word, case-insensitive; very short names only link when explicit. Longest first.
         const auto = names.filter(n => n.length >= MIN_MENTION_LENGTH).sort((a, b) => b.length - a.length);
+               const bb = Array.isArray(r.bbox) && r.bbox.length === 4 ? r.bbox.map(Number) : null;
         return {
           id: r.id,
           name,
+          bbox: bb && bb.every((n: number) => Number.isFinite(n)) ? bb as [number, number, number, number] : null,
           names: names.map(n => n.toLowerCase()),
           re: auto.length
             ? new RegExp(`(^|[^\\p{L}\\p{N}_])(${auto.map(escapeRegExp).join('|')})(?=$|[^\\p{L}\\p{N}_])`, 'iu')
@@ -194,9 +210,27 @@ export class BacklinksService {
     const res = await this.db.query('SELECT id, node_id, title, content FROM node_documents WHERE id = $1', [docId]);
     const doc = res.rows[0];
     if (!doc) return this.removeDocument(docId);
-    const { text, mentionIds } = extractDocText(doc.content);
+       const { text, mentionIds, places } = extractDocText(doc.content);
     const all = targets || await this.loadTargets();
-    await this.replaceSource('doc', doc.id, doc.node_id, this.findLinks(`${doc.title}\n${text}`, mentionIds, all, doc.node_id));
+    const found = this.findLinks(`${doc.title}\n${text}`, mentionIds, all, doc.node_id);
+
+    // 📍 places in the doc that lie inside another node's map area
+    for (const p of places) {
+      for (const t of all) {
+        if (!t.bbox || t.id === doc.node_id || found.some(f => f.targetId === t.id)) continue;
+        const [south, north, west, east] = t.bbox;
+        if (p.lat >= south && p.lat <= north && p.lng >= west && p.lng <= east) {
+          found.push({ targetId: t.id, kind: 'mention', snippet: `📍 ${p.name} (in ${doc.title})` });
+        }
+      }
+    }
+    await this.replaceSource('doc', doc.id, doc.node_id, found);
+
+    // Keep the doc's places for the Map overlays
+    await this.db.query('DELETE FROM doc_places WHERE document_id = $1', [doc.id]);
+    for (const p of places) {
+      await this.db.query('INSERT INTO doc_places (document_id, name, lat, lng) VALUES ($1, $2, $3, $4)', [doc.id, p.name, p.lat, p.lng]);
+    }
   }
 
   // A node's own description, Draw notes and map pins
@@ -234,8 +268,9 @@ export class BacklinksService {
       || JSON.stringify(oldMeta.excalidrawData || null) !== JSON.stringify(newMeta.excalidrawData || null)
       || JSON.stringify(oldMeta.mapMarkers || null) !== JSON.stringify(newMeta.mapMarkers || null);
     const aliasesChanged = JSON.stringify(oldMeta.aliases || []) !== JSON.stringify(newMeta.aliases || []);
+    const areaChanged = JSON.stringify(oldMeta.mapArea?.bbox || null) !== JSON.stringify(newMeta.mapArea?.bbox || null);
     // Moving a node on the graph changes none of these — nothing to do
-    if (!nameChanged && !textChanged && !aliasesChanged) return;
+    if (!nameChanged && !textChanged && !aliasesChanged && !areaChanged) return;
 
     // Renamed: keep the old name as an alias so text that uses it stays linked
     if (oldRow && nameChanged && oldRow.name && oldRow.name.trim().toLowerCase() !== String(newRow.name).trim().toLowerCase()) {
@@ -252,7 +287,12 @@ export class BacklinksService {
     if (textChanged || nameChanged) await this.reindexNode(newRow.id, targets);
     if (nameChanged || aliasesChanged) {
       const names = [newRow.name, ...(Array.isArray(newMeta.aliases) ? newMeta.aliases : [])];
-      await this.recheckTextsMentioning(newRow.id, names, targets);
+          await this.recheckTextsMentioning(newRow.id, names, targets);
+    }
+    // Map area set or moved: re-check every doc that has 📍 places
+    if (areaChanged) {
+      const docs = await this.db.query('SELECT DISTINCT document_id AS id FROM doc_places');
+      for (const d of docs.rows) await this.reindexDocument(d.id, targets);
     }
   }
 
@@ -287,8 +327,24 @@ export class BacklinksService {
     );
   }
 
-  async removeDocument(docId: number) {
+   async removeDocument(docId: number) {
     await this.db.query(`DELETE FROM node_backlinks WHERE source_type = 'doc' AND source_id = $1`, [docId]);
+    await this.db.query('DELETE FROM doc_places WHERE document_id = $1', [docId]);
+  }
+
+  // 📍 places from Docs — for one node (its own and linked docs) or for everything
+  async getPlaces(nodeId?: number) {
+    const res = await this.db.query(
+      `SELECT p.name, p.lat, p.lng, d.id AS document_id, d.title AS doc_title, d.node_id, h.name AS node_name
+       FROM doc_places p
+       JOIN node_documents d ON d.id = p.document_id
+       LEFT JOIN mindmap_nodes h ON h.id = d.node_id
+       ${nodeId ? `WHERE d.node_id = $1
+                   OR d.id IN (SELECT document_id FROM node_document_links WHERE node_id = $1)` : ''}
+       ORDER BY p.id`,
+      nodeId ? [nodeId] : [],
+    );
+    return res.rows;
   }
 
   // ------------------------------------------------------------

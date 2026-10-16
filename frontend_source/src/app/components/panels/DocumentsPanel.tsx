@@ -304,8 +304,8 @@ export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: Doc
   const removeDoc = async (doc: DocSummary) => {
     const isHome = doc.relation === 'home';
     const question = isHome
-      ? `Delete "${doc.title}"? It will also disappear from any nodes that link to it.`
-      : `Unlink "${doc.title}" from this node? The document itself is kept.`;
+      ? `Move "${doc.title}" to the Trash? It also disappears from nodes that link to it. You can restore it for 30 days.`
+    : `Unlink "${doc.title}" from this node? The document itself is kept.`;
     if (!confirm(question)) return;
     if (pending.current?.id === doc.id) {
       if (isHome) { pending.current = null; setSaveState('saved'); } else { await save(); }

@@ -45,6 +45,7 @@ import HealthView from './components/HealthView';
 import NewsfeedView from './components/NewsfeedView';
 import QuizCenter from './components/QuizCenter';
 import NetworkPanel from './components/NetworkPanel';
+import TrashView from './components/TrashView';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel } from '@/lib/types';
 // ============================================================
 // API BASE URL
@@ -268,8 +269,7 @@ export default function Dashboard() {
   // DELETE NODE
   // ============================================================
   const deleteNode = useCallback(async (nodeId: number) => {
-    if (!confirm('Are you sure you want to delete this node?')) return;
-
+    if (!confirm('Move this node to the Trash? You can restore it (with its documents) for 30 days.')) return;
     try {
       const res = await fetch(`${API_URL}/api/mindmap/node/${nodeId}`, {
         method: 'DELETE',
@@ -949,8 +949,12 @@ export default function Dashboard() {
             />
           )}
 
-          {activeView === 'network' && (
+                  {activeView === 'network' && (
             <NetworkPanel />
+          )}
+
+          {activeView === 'trash' && (
+            <TrashView onRestored={fetchNodes} />
           )}
           </div>
 

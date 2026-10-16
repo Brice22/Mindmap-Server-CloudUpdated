@@ -218,7 +218,25 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE INDEX IF NOT EXISTS idx_node_backlinks_target ON node_backlinks(target_node_id)`,
-        `CREATE INDEX IF NOT EXISTS idx_node_backlinks_source ON node_backlinks(source_type, source_id)`,
+                `CREATE INDEX IF NOT EXISTS idx_node_backlinks_source ON node_backlinks(source_type, source_id)`,
+        // 📍 places written in Docs with /place (shown on the Map)
+        `CREATE TABLE IF NOT EXISTS doc_places (
+          id SERIAL PRIMARY KEY,
+          document_id INTEGER NOT NULL REFERENCES node_documents(id) ON DELETE CASCADE,
+          name TEXT NOT NULL,
+          lat DOUBLE PRECISION NOT NULL,
+          lng DOUBLE PRECISION NOT NULL
+        )`,
+               `CREATE INDEX IF NOT EXISTS idx_doc_places_doc ON doc_places(document_id)`,
+        // 🗑️ Trash: full copies of deleted nodes and documents, kept 30 days
+        `CREATE TABLE IF NOT EXISTS trash (
+          id SERIAL PRIMARY KEY,
+          item_type TEXT NOT NULL,
+          item_id INTEGER NOT NULL,
+          title TEXT,
+          data JSONB NOT NULL,
+          deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
       ];
 
       for (const sql of additionalTables) {
