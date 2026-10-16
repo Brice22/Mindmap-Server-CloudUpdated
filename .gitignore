@@ -4,3 +4,4 @@ dist/
 *.lock
 bun.lockb
 .env
+frontend_source/public/fonts/

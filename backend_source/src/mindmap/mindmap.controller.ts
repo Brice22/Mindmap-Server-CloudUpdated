@@ -151,11 +151,17 @@ async searchNodes(@Query('q') query: string) {
   @Delete('news/articles/cleanup')
   cleanupOldArticles() { return this.mindmapService.cleanupOldArticles(7); }
 
-  // === NODE DOCUMENTS (BlockNote) ===
+   // === NODE DOCUMENTS (BlockNote) — shared library ===
   @Get('node/:id/documents')
   getNodeDocuments(@Param('id') id: string) { return this.mindmapService.getNodeDocuments(Number(id)); }
   @Post('node/:id/documents')
   createNodeDocument(@Param('id') id: string, @Body() body: any) { return this.mindmapService.createNodeDocument(Number(id), body); }
+  @Post('node/:id/documents/link')
+  linkDocument(@Param('id') id: string, @Body() body: any) { return this.mindmapService.linkDocumentToNode(Number(id), Number(body.documentId)); }
+  @Delete('node/:id/documents/link/:docId')
+  unlinkDocument(@Param('id') id: string, @Param('docId') docId: string) { return this.mindmapService.unlinkDocumentFromNode(Number(id), Number(docId)); }
+  @Get('documents')
+  getAllDocuments(@Query('search') search?: string) { return this.mindmapService.getAllDocuments(search); }
   @Get('documents/:id')
   getNodeDocument(@Param('id') id: string) { return this.mindmapService.getNodeDocument(Number(id)); }
   @Put('documents/:id')

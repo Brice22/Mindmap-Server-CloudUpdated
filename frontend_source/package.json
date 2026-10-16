@@ -3,8 +3,8 @@
   "version": "1.0.0",
   "private": true,
   "scripts": {
-    "dev": "next dev -p 3001",
-    "build": "next build",
+    "dev": "bun scripts/copy-excalidraw-fonts.mjs && next dev -p 3001",
+    "build": "bun scripts/copy-excalidraw-fonts.mjs && next build",
     "start": "next start"
   },
   "dependencies": {

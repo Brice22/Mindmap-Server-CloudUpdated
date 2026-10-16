@@ -13,7 +13,7 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import '@excalidraw/excalidraw/index.css';
-
+import '@/lib/excalidrawAssets'; // fonts from this app, not esm.sh
 const SAFETY_SAVE_MS = 2 * 60 * 1000;
 
 interface ExcalidrawWrapperProps {

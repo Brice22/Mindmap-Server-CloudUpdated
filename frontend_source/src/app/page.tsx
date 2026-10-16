@@ -30,6 +30,8 @@ import { useState, useEffect, useCallback } from 'react';
 import MindMapGraph from './MindMapGraph';
 import ContextMenu from './components/ContextMenu';
 import NodeWorkspace from './components/NodeWorkspace';
+import NotesPreview from './components/NotesPreview';
+import DocumentsPanel from './components/panels/DocumentsPanel';
 import NodeModal from './components/NodeModal';
 import GlobalNavBar from './components/GlobalNavBar';
 import BookmarkPanel from './components/BookmarkPanel';
@@ -42,8 +44,7 @@ import HealthView from './components/HealthView';
 import NewsfeedView from './components/NewsfeedView';
 import QuizCenter from './components/QuizCenter';
 import NetworkPanel from './components/NetworkPanel';
-import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection } from '@/lib/types';
-
+import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel } from '@/lib/types';
 // ============================================================
 // API BASE URL
 // ============================================================
@@ -97,7 +98,7 @@ export default function Dashboard() {
   // STATE: Workspace
   // --------------------------------------------------------
   const [workspaceNode, setWorkspaceNode] = useState<Node | null>(null);
-
+  const [workspaceOpenPanel, setWorkspaceOpenPanel] = useState<Panel['type'] | undefined>(undefined);
   // --------------------------------------------------------
   // STATE: New Features
   // --------------------------------------------------------
@@ -164,10 +165,16 @@ export default function Dashboard() {
     }
   }, []);
 
-  // Initial fetch
+   // Initial fetch
   useEffect(() => {
     fetchNodes();
   }, [fetchNodes]);
+
+  // Keep the selected node in sync with the latest data, so the Inspector (and
+  // "Open in Workspace" from it) never works from an old copy of the node
+  useEffect(() => {
+    setSelectedNode(prev => (prev ? nodes.find(n => n.id === prev.id) || prev : prev));
+  }, [nodes]);
 
   // Listen for edge right-click
   useEffect(() => {
@@ -506,10 +513,10 @@ export default function Dashboard() {
   if (workspaceNode) {
     return (
       <NodeWorkspace
-        node={workspaceNode}
-        onClose={() => setWorkspaceNode(null)}
+              node={workspaceNode}
+        onClose={() => { setWorkspaceNode(null); setWorkspaceOpenPanel(undefined); }}
         onUpdateNode={updateNode}
-        etherpadBaseUrl={`${API_URL}/etherpad`}
+        openPanel={workspaceOpenPanel}
       />
     );
   }
@@ -740,12 +747,11 @@ export default function Dashboard() {
                 </div>
               )}
 
-              {activeTab?.type === 'node' && (
-                <iframe
-                  src={`${API_URL}/etherpad/p/node_${activeTab.nodeId}?showChat=true&showLineNumbers=true`}
-                  style={{ flex: 1, width: '100%', border: 'none' }}
-                  title="Etherpad"
-                />
+              {activeTab?.type === 'node' && activeTab.nodeId != null && (
+                <div style={{ flex: 1, minHeight: 0 }}>
+                  {/* A node opened as a tab shows its Docs (Etherpad was retired) */}
+                  <DocumentsPanel key={activeTab.nodeId} nodeId={activeTab.nodeId} />
+                </div>
               )}
             </>
           )}
@@ -1026,17 +1032,13 @@ export default function Dashboard() {
                     )}
                   </div>
 
-                  {/* Quick Notes */}
+                  {/* Quick Notes — preview of the node's Draw (Excalidraw) notes; click to edit */}
                   <h4 style={{ margin: '0 0 10px 0' }}>Quick Notes</h4>
-                  <iframe
-                    src={`${API_URL}/etherpad/p/node_${selectedNode.id}?showChat=false&showLineNumbers=false&showControls=false`}
-                    style={{
-                      width: '100%',
-                      height: '300px',
-                      border: '1px solid #444',
-                      borderRadius: '4px',
-                    }}
-                    title="Quick Notes"
+                  <NotesPreview
+                    data={(typeof selectedNode.metadata === 'string'
+                      ? JSON.parse(selectedNode.metadata)
+                      : selectedNode.metadata || {}).excalidrawData}
+                    onOpen={() => { setWorkspaceOpenPanel('excalidraw'); setWorkspaceNode(selectedNode); }}
                   />
                 </>
               ) : (

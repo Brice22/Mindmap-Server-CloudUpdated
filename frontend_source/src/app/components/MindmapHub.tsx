@@ -7,7 +7,7 @@ import type { Node, MindmapCollection } from '@/lib/types';
 const DEFAULT_TEMPLATES = [
   { name: 'Family Tree', icon: '🌳', description: 'Family relationships and history' },
   { name: 'Goals', icon: '🎯', description: 'Long-term objectives and milestones' },
-  { name: 'Daily Journal', icon: '📓', description: 'New Etherpad entry each day' },
+  { name: 'Daily Journal', icon: '📓', description: 'New journal doc each day' },
   { name: 'Dream Journal', icon: '🌙', description: 'Record and track your dreams' },
   { name: 'Health & Nutrition', icon: '🏥', description: 'Health analytics and nutrition diary' },
   { name: 'Lesson Plans', icon: '📚', description: 'Design curriculum, courses, and study materials' },

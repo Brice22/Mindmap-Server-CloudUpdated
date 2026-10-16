@@ -82,7 +82,7 @@ private _meili: MeiliSearch | null = null;
     } catch (e: any) {
       this.logger.warn('SurrealDB/MindsDB sync skipped: ' + e.message);
     }
-    
+
     try { await this.cache.invalidateNodeCache(); } catch {}
     try { this.metrics.nodeCreations.inc(); } catch {}
 
@@ -530,12 +530,59 @@ return result.rows[0];
     return result.rows[0];
   }
 
-  // === NODE DOCUMENTS (BlockNote) ===
+   // === NODE DOCUMENTS (BlockNote) — shared library ===
+  // Every document has a "home" node (node_id) where it was made. If that node
+  // is deleted the document is kept with node_id = NULL ("Unfiled").
+  // Other nodes can link to any document (node_document_links).
+  // Opening a node shows: its home docs, docs linked to it, and docs whose
+  // home is its parent or one of its children ("family").
   async getNodeDocuments(nodeId: number) {
     const result = await this.db.query(
-      `SELECT id, node_id, group_name, title, sort_order, created_at, updated_at
-       FROM node_documents WHERE node_id = $1 ORDER BY group_name, sort_order, id`,
+      `WITH me AS (
+         SELECT id, name, metadata->>'parent' AS parent FROM mindmap_nodes WHERE id = $1
+       ),
+       family AS (
+         SELECT n.id FROM mindmap_nodes n, me
+           WHERE me.parent IS NOT NULL AND lower(n.name) = lower(me.parent) AND n.id <> me.id
+         UNION
+         SELECT n.id FROM mindmap_nodes n, me
+           WHERE lower(n.metadata->>'parent') = lower(me.name) AND n.id <> me.id
+       )
+       SELECT d.id, d.node_id, d.group_name, d.title, d.sort_order, d.created_at, d.updated_at,
+              h.name AS home_node_name,
+              CASE WHEN d.node_id = $1 THEN 'home'
+                   WHEN l.node_id IS NOT NULL THEN 'linked'
+                   ELSE 'family' END AS relation
+       FROM node_documents d
+       LEFT JOIN node_document_links l ON l.document_id = d.id AND l.node_id = $1
+       LEFT JOIN mindmap_nodes h ON h.id = d.node_id
+       WHERE d.node_id = $1
+          OR l.node_id IS NOT NULL
+          OR d.node_id IN (SELECT id FROM family)
+       ORDER BY CASE WHEN d.node_id = $1 THEN 0 WHEN l.node_id IS NOT NULL THEN 1 ELSE 2 END,
+                d.group_name, d.sort_order, d.id`,
       [nodeId],
+    );
+    return result.rows;
+  }
+
+  // Whole library (for "Link existing document"): optional title search
+  async getAllDocuments(search?: string) {
+    const params: any[] = [];
+    let where = '';
+    if (search && search.trim()) {
+      params.push(`%${search.trim()}%`);
+      where = 'WHERE d.title ILIKE $1 OR d.group_name ILIKE $1 OR h.name ILIKE $1';
+    }
+    const result = await this.db.query(
+      `SELECT d.id, d.node_id, d.group_name, d.title, d.updated_at, h.name AS home_node_name,
+              (SELECT count(*)::int FROM node_document_links l WHERE l.document_id = d.id) AS link_count
+       FROM node_documents d
+       LEFT JOIN mindmap_nodes h ON h.id = d.node_id
+       ${where}
+       ORDER BY (d.node_id IS NULL) DESC, d.updated_at DESC
+       LIMIT 200`,
+      params,
     );
     return result.rows;
   }
@@ -553,7 +600,7 @@ return result.rows[0];
        RETURNING id, node_id, group_name, title, sort_order, created_at, updated_at`,
       [nodeId, body.groupName || 'General', body.title || 'Untitled', JSON.stringify(body.content || [])],
     );
-    return result.rows[0];
+    return { ...result.rows[0], relation: 'home' };
   }
 
   async updateNodeDocument(id: number, updates: any) {
@@ -562,6 +609,8 @@ return result.rows[0];
     if (updates.groupName !== undefined) { fields.push(`group_name = $${idx++}`); values.push(updates.groupName); }
     if (updates.content !== undefined) { fields.push(`content = $${idx++}`); values.push(JSON.stringify(updates.content)); }
     if (updates.sortOrder !== undefined) { fields.push(`sort_order = $${idx++}`); values.push(updates.sortOrder); }
+    // Move to another home node (null = Unfiled)
+    if (updates.nodeId !== undefined) { fields.push(`node_id = $${idx++}`); values.push(updates.nodeId === null ? null : Number(updates.nodeId)); }
     if (fields.length === 0) return null;
     fields.push('updated_at = CURRENT_TIMESTAMP');
     values.push(id);
@@ -575,6 +624,20 @@ return result.rows[0];
 
   async deleteNodeDocument(id: number) {
     await this.db.query('DELETE FROM node_documents WHERE id = $1', [id]);
+    return { success: true };
+  }
+
+  async linkDocumentToNode(nodeId: number, documentId: number) {
+    await this.db.query(
+      `INSERT INTO node_document_links (node_id, document_id) VALUES ($1, $2)
+       ON CONFLICT DO NOTHING`,
+      [nodeId, documentId],
+    );
+    return { success: true };
+  }
+
+  async unlinkDocumentFromNode(nodeId: number, documentId: number) {
+    await this.db.query('DELETE FROM node_document_links WHERE node_id = $1 AND document_id = $2', [nodeId, documentId]);
     return { success: true };
   }
 }

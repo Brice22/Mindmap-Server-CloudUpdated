@@ -177,7 +177,7 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         )`,
         `CREATE TABLE IF NOT EXISTS node_documents (
           id SERIAL PRIMARY KEY,
-          node_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          node_id INTEGER REFERENCES mindmap_nodes(id) ON DELETE SET NULL,
           group_name TEXT DEFAULT 'General',
           title TEXT NOT NULL DEFAULT 'Untitled',
           content JSONB DEFAULT '[]'::jsonb,
@@ -186,6 +186,26 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE INDEX IF NOT EXISTS idx_node_documents_node ON node_documents(node_id)`,
+        // Shared library: deleting a node keeps its documents (node_id becomes NULL = "Unfiled").
+        // Upgrades tables created before this change (they deleted documents with the node).
+        `DO $$
+         BEGIN
+           IF EXISTS (SELECT 1 FROM pg_constraint
+                      WHERE conname = 'node_documents_node_id_fkey' AND confdeltype = 'c') THEN
+             ALTER TABLE node_documents DROP CONSTRAINT node_documents_node_id_fkey;
+             ALTER TABLE node_documents ALTER COLUMN node_id DROP NOT NULL;
+             ALTER TABLE node_documents ADD CONSTRAINT node_documents_node_id_fkey
+               FOREIGN KEY (node_id) REFERENCES mindmap_nodes(id) ON DELETE SET NULL;
+           END IF;
+         END $$`,
+        // Other nodes that link to a document (besides its home node)
+        `CREATE TABLE IF NOT EXISTS node_document_links (
+          node_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE SET NULL,
+          document_id INTEGER NOT NULL REFERENCES node_documents(id) ON DELETE CASCADE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          PRIMARY KEY (node_id, document_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_node_document_links_doc ON node_document_links(document_id)`,
       ];
 
       for (const sql of additionalTables) {

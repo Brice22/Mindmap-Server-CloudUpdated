@@ -35,7 +35,7 @@ interface NodeWorkspaceProps {
   node: Node;
   onClose: () => void;
   onUpdateNode: (nodeId: number, updates: Partial<Node>) => void;
-  etherpadBaseUrl?: string;
+  openPanel?: Panel['type'];   // make sure this window is open (e.g. 'excalidraw' from the Inspector)
 }
 
 // ============================================================
@@ -45,7 +45,7 @@ export default function NodeWorkspace({
   node,
   onClose,
   onUpdateNode,
-  etherpadBaseUrl = '/etherpad',
+  openPanel,
 }: NodeWorkspaceProps) {
   // --------------------------------------------------------
   // STATE
@@ -66,11 +66,12 @@ export default function NodeWorkspace({
     custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table', docs: 'Docs',
   };
 
-  const [panels, setPanels] = useState<Panel[]>(() => {
+   const [panels, setPanels] = useState<Panel[]>(() => {
+    let loaded: Panel[];
     if (meta.panelLayout && Array.isArray(meta.panelLayout)) {
-            // Retired windows (math, charts and tables live in Docs now) — skip them in old saved layouts
-      return meta.panelLayout.filter((p: any) => !['formula', 'chart', 'table'].includes(p.type)).map((p: any, i: number) => ({
-      id: `${p.type}-${i}`,
+      // Retired windows (Etherpad notes → Draw; math, charts and tables → Docs) — skip them in old saved layouts
+      loaded = meta.panelLayout.filter((p: any) => !['etherpad', 'formula', 'chart', 'table'].includes(p.type)).map((p: any, i: number) => ({
+        id: `${p.type}-${i}`,
         type: p.type,
         title: titles[p.type] || p.type,
         width: 50,
@@ -79,8 +80,24 @@ export default function NodeWorkspace({
         zIndex: i + 1,
         minimized: !!p.minimized,
       }));
+    } else {
+      loaded = [{ id: 'docs', type: 'docs', title: 'Docs', width: 60, position: { x: 20, y: 20 }, size: { w: 800, h: 550 }, zIndex: 1 }];
     }
-         return [{ id: 'docs', type: 'docs', title: 'Docs', width: 60, position: { x: 20, y: 20 }, size: { w: 800, h: 550 }, zIndex: 1 }];
+    // Opened from the Inspector's notes preview → make sure that window is open, restored and on top
+    if (openPanel) {
+      const topZ = Math.max(0, ...loaded.map(p => p.zIndex || 1)) + 1;
+      if (loaded.some(p => p.type === openPanel)) {
+        loaded = loaded.map(p => (p.type === openPanel ? { ...p, minimized: false, zIndex: topZ } : p));
+      } else {
+        const w = typeof window !== 'undefined' ? window.innerWidth : 1200;
+        const h = typeof window !== 'undefined' ? window.innerHeight : 800;
+        loaded = [...loaded, {
+          id: `${openPanel}-${Date.now()}`, type: openPanel, title: titles[openPanel] || openPanel, width: 50,
+          position: { x: 40, y: 40 }, size: { w: Math.min(1000, w * 0.8), h: Math.min(650, h * 0.75) }, zIndex: topZ,
+        }];
+      }
+    }
+    return loaded;
   });
   const [isFullscreen, setIsFullscreen] = useState(false);
 
@@ -207,19 +224,7 @@ export default function NodeWorkspace({
   // ============================================================
   const renderPanelContent = (panel: Panel) => {
     switch (panel.type) {
-      case 'etherpad':
-        return (
-          <iframe
-            src={`${etherpadBaseUrl}/p/node_${node.id}?showChat=true&showLineNumbers=true`}
-            style={{
-              width: '100%',
-              height: '100%',
-              border: 'none',
-              background: '#1e1e1e',
-            }}
-            title="Etherpad Editor"
-          />
-        );
+     
 
     
 
@@ -323,19 +328,7 @@ export default function NodeWorkspace({
 
         {/* Center: Panel buttons */}
         <div style={{ display: 'flex', gap: '8px' }}>
-          <button
-            onClick={() => addPanel('etherpad')}
-            style={{
-              background: panels.some(p => p.type === 'etherpad') ? '#0070f3' : '#333',
-              border: 'none',
-              color: '#fff',
-              padding: '6px 12px',
-              borderRadius: '4px',
-              cursor: 'pointer',
-            }}
-          >
-            📝 Notes
-          </button>
+          
           
           
            <button
