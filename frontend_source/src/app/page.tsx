@@ -47,6 +47,7 @@ import NewsfeedView from './components/NewsfeedView';
 import QuizCenter from './components/QuizCenter';
 import NetworkPanel from './components/NetworkPanel';
 import TrashView from './components/TrashView';
+  import FilesPanel from './components/FilesPanel';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel } from '@/lib/types';
 // ============================================================
 // API BASE URL
@@ -102,6 +103,7 @@ export default function Dashboard() {
   // --------------------------------------------------------
   const [workspaceNode, setWorkspaceNode] = useState<Node | null>(null);
   const [workspaceOpenPanel, setWorkspaceOpenPanel] = useState<Panel['type'] | undefined>(undefined);
+  const [quizFocusNodeId, setQuizFocusNodeId] = useState<number | null>(null);   // "🧪 Study this node" → its deck in Quiz Center
 
   // --------------------------------------------------------
   // STATE: Backlinks (dashed link lines on the graph + Inspector refresh)
@@ -972,6 +974,8 @@ export default function Dashboard() {
               nodes={nodes}
               apiUrl={API_URL}
               onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
+              focusNodeId={quizFocusNodeId}
+              onClearFocus={() => setQuizFocusNodeId(null)}
             />
           )}
         
@@ -999,6 +1003,9 @@ export default function Dashboard() {
                   {activeView === 'network' && (
             <NetworkPanel />
           )}
+            {activeView === 'files' && (
+              <FilesPanel nodes={nodes} />
+            )}
 
           {activeView === 'trash' && (
             <TrashView onRestored={fetchNodes} />
@@ -1074,6 +1081,15 @@ export default function Dashboard() {
                   >
                     Open in Workspace
                   </button>
+                                      <button
+                      onClick={() => { setQuizFocusNodeId(selectedNode.id); setActiveView('quiz'); }}
+                      style={{
+                        width: '100%', padding: '8px', marginBottom: '15px', background: '#6d28d9',
+                        color: 'white', border: 'none', borderRadius: '4px', cursor: 'pointer',
+                      }}
+                    >
+                      🧪 Study this node
+                    </button>
 
                  {/* Backlinks — automatic links from docs, Draw notes, descriptions and map pins */}
                   <BacklinksPanel
@@ -1086,7 +1102,7 @@ export default function Dashboard() {
 
                   {/* Photo — above the Quick Notes */}
                   <NodePhotoPanel node={selectedNode} onUpdateNode={updateNode} />
-                  
+
                   {/* Quick Notes — preview of the node's Draw (Excalidraw) notes; click to edit */}
                   <h4 style={{ margin: '0 0 10px 0' }}>Quick Notes</h4>
                   <NotesPreview

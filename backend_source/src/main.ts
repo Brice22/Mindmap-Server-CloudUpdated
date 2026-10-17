@@ -7,6 +7,8 @@ async function bootstrap() {
   // Use the REAL AppModule here
   const app = await NestFactory.create<NestExpressApplication>(AppModule);
   app.useBodyParser('json', { limit: '10mb' });
+    // "Send to HServer" posts whole web pages as a form
+  app.useBodyParser('urlencoded', { limit: '30mb', extended: true });
   // Enable CORS so your Frontend (on port 3001/3002) can talk to this
   app.enableCors({
     origin: '*', 

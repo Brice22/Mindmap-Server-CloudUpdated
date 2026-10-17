@@ -25,6 +25,7 @@ import ExcalidrawWrapper from './ExcalidrawWrapper';
 import DocumentsPanel from './panels/DocumentsPanel';
 import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import MapView from './MapView';
+import FilesPanel from './FilesPanel';
 
 
 // ============================================================
@@ -63,7 +64,7 @@ export default function NodeWorkspace({
   // Track which panels are open and their sizes
   const titles: Record<string, string> = {
     etherpad: 'Notes', formula: 'Formula', chart: 'Chart', preview: 'Preview',
-    custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table', docs: 'Docs',
+    custom: 'Custom', excalidraw: 'Draw', map: 'Map', table: 'Table', docs: 'Docs', files: 'Files',
   };
 
    const [panels, setPanels] = useState<Panel[]>(() => {
@@ -265,7 +266,9 @@ export default function NodeWorkspace({
             />
           </NodeFormulaContext.Provider>
         );
-     
+
+         case 'files':
+          return <FilesPanel nodeId={node.id} />;
 
       default:
         return <div>Unknown panel type</div>;
@@ -371,6 +374,19 @@ export default function NodeWorkspace({
           >
             📄 Docs
           </button>
+                      <button
+              onClick={() => addPanel('files')}
+              style={{
+                background: panels.some(p => p.type === 'files') ? '#0070f3' : '#333',
+                border: 'none',
+                color: '#fff',
+                padding: '6px 12px',
+                borderRadius: '4px',
+                cursor: 'pointer',
+              }}
+            >
+              📎 Files
+            </button>
         </div>
 
         {/* Right: Fullscreen toggle */}

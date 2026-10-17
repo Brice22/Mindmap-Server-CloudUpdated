@@ -35,11 +35,10 @@ import type { Node, DragState } from '@/lib/types';
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'; // WebSocket server URL (adjust as needed)
 const DRAG_THRESHOLD = 5;  // Pixels mouse must move to count as drag
 
-// Saved photos are stored as /uploads/... on the backend
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+// Saved photos are stored as /uploads/... — served by nginx on the server and
+// passed to the backend by the rewrite in next.config.ts on the laptop
 export function photoUrl(photo?: string | null) {
-  if (!photo) return '';
-  return photo.startsWith('/uploads/') ? `${API_URL}${photo}` : photo;
+  return photo || '';
 }
 
 // Graph zoom/pan is remembered in this browser, so a refresh puts you back where you were

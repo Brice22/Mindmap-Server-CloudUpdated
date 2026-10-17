@@ -30,6 +30,7 @@ import { NodeFormulaContext } from '@/lib/NodeFormulaContext';
 import { LAYOUT_PROPS } from './blockLayout';
 import { ChartBlock, GraphBlock } from './chartBlocks';
 import { EmbedBlock } from './embedBlock';
+import { FlashcardBlock } from './flashcardBlock';
 import { NodeMention } from './nodeMentions';
 import { PlaceMention } from './placeMention';
 
@@ -189,7 +190,7 @@ const InlineMath = createReactInlineContentSpec(
 // SCHEMA (default blocks + math)
 // ------------------------------------------------------------
 export const mathSchema = BlockNoteSchema.create({
-  blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock(), embed: EmbedBlock() },
+  blockSpecs: { ...defaultBlockSpecs, math: MathBlock(), chart: ChartBlock(), graph: GraphBlock(), embed: EmbedBlock(), flashcard: FlashcardBlock() },
     inlineContentSpecs: { ...defaultInlineContentSpecs, inlineMath: InlineMath, nodeMention: NodeMention, place: PlaceMention },
 });
 
@@ -246,6 +247,14 @@ export function getSlashMenuItems(editor: any): DefaultReactSuggestionItem[] {
       icon: <span style={{ fontSize: 16 }}>📍</span>,
       onItemClick: () => editor.insertInlineContent([{ type: 'place', props: { name: '', lat: 0, lng: 0 } }, ' ']),
     },
+          {
+        title: 'Flashcard',
+        subtext: 'Question + answer → Quiz Center (or type "term :: definition")',
+        aliases: ['flashcard', 'card', 'quiz', 'study', 'qa', 'question'],
+        group: 'Study',
+        icon: <span style={{ fontSize: 16 }}>🧠</span>,
+        onItemClick: () => insertOrUpdateBlockForSlashMenu(editor, { type: 'flashcard' } as any),
+      },
   ];
   // Math items first so typing /graph picks Graph, not Paragraph (which also contains "graph")
   return [...mathItems, ...getDefaultReactSlashMenuItems(editor)];

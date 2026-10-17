@@ -126,6 +126,12 @@ export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: Doc
   const [linkSearch, setLinkSearch] = useState('');
   const [library, setLibrary] = useState<LibraryDoc[]>([]);
 
+      // "Save web page" box
+    const [showClip, setShowClip] = useState(false);
+    const [clipUrl, setClipUrl] = useState('');
+    const [clipBusy, setClipBusy] = useState(false);
+    const [clipMessage, setClipMessage] = useState<{ text: string; error?: boolean } | null>(null);
+
   // Latest unsaved content (kept in a ref so typing doesn't re-render the list)
   const pending = useRef<{ id: number; content: any[] } | null>(null);
 
@@ -295,6 +301,38 @@ export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: Doc
     setLinkSearch('');
   };
 
+    // Save a web page as a new document in this node (a file link goes to 📎 Files)
+    const saveClip = async () => {
+      const url = clipUrl.trim();
+      if (!url) return;
+      setClipBusy(true);
+      setClipMessage(null);
+      try {
+        const res = await fetch(`${API_URL}/api/mindmap/clip`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ url: /^https?:\/\//i.test(url) ? url : `https://${url}`, nodeId }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) throw new Error(data.message || `Could not save (${res.status})`);
+        if (data.kind === 'page') {
+          await save();
+          setDocs(await loadList());
+          setActiveId(data.document.id);
+          setClipMessage(data.images?.found > data.images?.saved
+            ? { text: `Saved. ${data.images.found - data.images.saved} picture(s) could not be copied and still load from the site.` }
+            : null);
+          setShowClip(false);
+        } else {
+          setClipMessage({ text: `That link is a file (${data.file.name}) — saved to 📎 Files.` });
+        }
+        setClipUrl('');
+      } catch (e: any) {
+        setClipMessage({ text: e?.message || 'Could not save the page', error: true });
+      }
+      setClipBusy(false);
+    };
+
   const commitRename = async (id: number) => {
     const title = renameValue.trim();
     setRenamingId(null);
@@ -387,9 +425,27 @@ export default function DocumentsPanel({ nodeId, legacy, onLegacyImported }: Doc
       <div style={{ width: 220, flexShrink: 0, borderRight: '1px solid #333', display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
         <div style={{ padding: 8, borderBottom: '1px solid #333' }}>
           <div style={{ display: 'flex', gap: 6 }}>
-            <button onClick={() => { setShowNew(s => !s); setShowLink(false); }} style={{ ...smallBtn, flex: 1 }}>+ New</button>
-            <button onClick={() => { setShowLink(s => !s); setShowNew(false); }} style={{ ...smallBtn, flex: 1 }}>🔗 Link existing</button>
-          </div>
+                         <button onClick={() => { setShowNew(s => !s); setShowLink(false); setShowClip(false); }} style={{ ...smallBtn, flex: 1 }}>+ New</button>
+              <button onClick={() => { setShowLink(s => !s); setShowNew(false); setShowClip(false); }} style={{ ...smallBtn, flex: 1 }}>🔗 Link existing</button>
+            </div>
+            <button onClick={() => { setShowClip(s => !s); setShowNew(false); setShowLink(false); setClipMessage(null); }}
+              style={{ ...smallBtn, width: '100%', marginTop: 6 }}>🌐 Save web page</button>
+            {showClip && (
+              <div>
+                <input autoFocus value={clipUrl} onChange={e => setClipUrl(e.target.value)} disabled={clipBusy}
+                  onKeyDown={e => { if (e.key === 'Enter') saveClip(); if (e.key === 'Escape') setShowClip(false); }}
+                  placeholder="Paste a link…" style={inputStyle} />
+                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                  <button onClick={saveClip} disabled={clipBusy} style={{ ...smallBtn, background: '#0070f3', color: '#fff', flex: 1 }}>
+                    {clipBusy ? 'Saving page…' : 'Save'}
+                  </button>
+                  <button onClick={() => setShowClip(false)} style={{ ...smallBtn, flex: 1 }}>Cancel</button>
+                </div>
+              </div>
+            )}
+            {clipMessage && (
+              <div style={{ marginTop: 6, fontSize: 11, color: clipMessage.error ? '#ef4444' : '#22c55e' }}>{clipMessage.text}</div>
+            )}
           {showNew && (
             <div>
               <input autoFocus value={newTitle} onChange={e => setNewTitle(e.target.value)}

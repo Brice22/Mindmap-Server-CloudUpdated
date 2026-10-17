@@ -24,6 +24,7 @@
 
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
+import { FlashcardSyncService } from './flashcard-sync.service';
 
 type SourceType = 'doc' | 'drawing' | 'description' | 'map';
 type Kind = 'link' | 'mention';
@@ -87,6 +88,8 @@ export function extractDocText(blocks: any[]): { text: string; mentionIds: numbe
         }
       } else if (b.type === 'chart') {
         parts.push(`${b.props?.title || ''}\n${b.props?.data || ''}`);
+      } else if (b.type === 'flashcard') {
+          parts.push(`${b.props?.question || ''}\n${b.props?.answer || ''}`);
       } else {
         const t = inline(b.content);
         if (t) parts.push(t);
@@ -115,8 +118,11 @@ export class BacklinksService {
   // Backlink jobs run one at a time, so two quick saves can't interleave
   private queue: Promise<unknown> = Promise.resolve();
 
-  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {
-    // First start after this feature is added: build links for everything already written
+    constructor(
+      @Inject(DatabaseService) private readonly db: DatabaseService,
+      @Inject(FlashcardSyncService) private readonly flashcards: FlashcardSyncService,
+    ) {
+  // First start after this feature is added: build links for everything already written
     setTimeout(() => this.enqueue(() => this.buildIfEmpty()), 8000);
   }
 
@@ -210,6 +216,8 @@ export class BacklinksService {
     const res = await this.db.query('SELECT id, node_id, title, content FROM node_documents WHERE id = $1', [docId]);
     const doc = res.rows[0];
     if (!doc) return this.removeDocument(docId);
+          // Flashcards written in the doc (/flashcard blocks and "question :: answer" lines) → Quiz Center
+      try { await this.flashcards.syncDocument(doc); } catch (e: any) { this.logger.warn(`Flashcards for doc ${docId}: ${e?.message || e}`); }
        const { text, mentionIds, places } = extractDocText(doc.content);
     const all = targets || await this.loadTargets();
     const found = this.findLinks(`${doc.title}\n${text}`, mentionIds, all, doc.node_id);

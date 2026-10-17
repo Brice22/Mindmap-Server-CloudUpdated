@@ -237,6 +237,24 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           data JSONB NOT NULL,
           deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
+                // 📁 File library: everything in cloud_data (uploads, files saved from links, saved web pages)
+        `CREATE TABLE IF NOT EXISTS files (
+          id SERIAL PRIMARY KEY,
+          path TEXT NOT NULL UNIQUE,
+          name TEXT NOT NULL,
+          mime TEXT,
+          size BIGINT DEFAULT 0,
+          node_id INTEGER REFERENCES mindmap_nodes(id) ON DELETE SET NULL,
+          source_url TEXT,
+          kind TEXT NOT NULL DEFAULT 'upload',
+          document_id INTEGER REFERENCES node_documents(id) ON DELETE SET NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_files_node ON files(node_id)`,
+                // Flashcards written in Docs: which document and block each one came from
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES node_documents(id) ON DELETE CASCADE`,
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS block_id TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_doc_block ON flashcards(document_id, block_id)`,
       ];
 
       for (const sql of additionalTables) {

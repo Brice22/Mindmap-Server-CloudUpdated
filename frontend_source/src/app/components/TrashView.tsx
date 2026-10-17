@@ -14,7 +14,7 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface TrashItem {
   id: number;
-  item_type: 'node' | 'document';
+  item_type: 'node' | 'document' | 'file';
   item_id: number;
   title: string | null;
   deleted_at: string;
@@ -95,14 +95,14 @@ export default function TrashView({ onRestored }: TrashViewProps) {
             display: 'flex', alignItems: 'center', gap: 12, padding: '10px 12px', marginBottom: 6,
             background: '#1e1e2e', border: '1px solid #333', borderRadius: 6,
           }}>
-            <span style={{ fontSize: 20 }}>{item.item_type === 'node' ? '⚪' : '📄'}</span>
+            <span style={{ fontSize: 20 }}>  {item.item_type === 'node' ? '⚪' : item.item_type === 'file' ? '📎' : '📄'}</span>
             <div style={{ flex: 1, minWidth: 0 }}>
               <div style={{ color: '#fff', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{item.title || 'Untitled'}</div>
               <div style={{ fontSize: 11, color: '#777' }}>
                 {item.item_type === 'node'
                   ? `Node${item.doc_count ? ` · ${item.doc_count} document(s) come back with it` : ''}`
-                  : `Document${item.home_node_name ? ` · from ${item.home_node_name}` : ' · Unfiled'}`}
-                {' · deleted '}{new Date(item.deleted_at).toLocaleDateString()}
+                    : `${item.item_type === 'file' ? 'File' : 'Document'}${item.home_node_name ? ` · from ${item.home_node_name}` : item.item_type === 'file' ? '' : ' · Unfiled'}`}
+                  {' · deleted '}{new Date(item.deleted_at).toLocaleDateString()}
                 {' · '}<span style={{ color: item.days_left <= 3 ? '#f59e0b' : '#777' }}>{item.days_left} day(s) left</span>
               </div>
             </div>

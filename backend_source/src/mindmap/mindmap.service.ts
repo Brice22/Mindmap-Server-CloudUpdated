@@ -278,7 +278,14 @@ return result.rows[0];
 
   // === FLASHCARDS ===
   async getFlashcards() {
-    const result = await this.db.query('SELECT * FROM flashcards ORDER BY next_review ASC');
+    // Node name is looked up fresh (nodes get renamed); doc cards show which document they came from
+    const result = await this.db.query(
+      `SELECT f.*, COALESCE(n.name, f.node_name) AS node_name, d.title AS document_title
+       FROM flashcards f
+       LEFT JOIN mindmap_nodes n ON n.id = f.node_id
+       LEFT JOIN node_documents d ON d.id = f.document_id
+       ORDER BY f.next_review ASC NULLS FIRST, f.id`,
+    );
     return result.rows;
   }
   async addFlashcard(data: any) {
@@ -589,7 +596,8 @@ return result.rows[0];
     let where = '';
     if (search && search.trim()) {
       params.push(`%${search.trim()}%`);
-      where = 'WHERE d.title ILIKE $1 OR d.group_name ILIKE $1 OR h.name ILIKE $1';
+      where = `WHERE d.title ILIKE $1 OR d.group_name ILIKE $1 OR h.name ILIKE $1
+               OR jsonb_path_query_array(d.content, 'strict $.**.text')::text ILIKE $1`;
     }
     const result = await this.db.query(
       `SELECT d.id, d.node_id, d.group_name, d.title, d.updated_at, h.name AS home_node_name,
@@ -682,7 +690,7 @@ return result.rows[0];
       this.backlinks.enqueue(() => this.backlinks.afterNodeSaved(row, null));
       const docs = await this.db.query('SELECT id FROM node_documents WHERE node_id = $1', [row.id]);
       for (const d of docs.rows) this.backlinks.enqueue(() => this.backlinks.reindexDocument(d.id));
-    } else {
+    } else if (type === 'document') {
       this.backlinks.enqueue(() => this.backlinks.reindexDocument(row.id));
     }
     return { success: true, type, id: row.id };

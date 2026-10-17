@@ -16,6 +16,7 @@ const NAV_ITEMS = [
   { id: 'quiz', label: 'Quiz Center', icon: '🧪' },
   { id: 'health', label: 'Health', icon: '🏥' },
   { id: 'network', label: 'Network', icon: '🔒' },
+  { id: 'files', label: 'Files', icon: '📁' },
   { id: 'trash', label: 'Trash', icon: '🗑️' },
 
 ];
