@@ -17,7 +17,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Node } from '@/lib/types';
 import {
-  type LibraryFile, type FileType, fileUrl, fileType, formatSize, isWebPage, offlineCopyUrl, FILE_ICONS,
+  type LibraryFile, type FileType, fileUrl, fileType, formatSize, isWebPage, offlineCopyUrl, FILE_ICONS, pageLabel,
 } from '@/lib/files';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -60,7 +60,8 @@ function uploadFile(file: File, nodeId: number | undefined, onProgress: (pct: nu
 // ------------------------------------------------------------
 // PREVIEW
 // ------------------------------------------------------------
-function Preview({ file, onClose }: { file: LibraryFile; onClose: () => void }) {
+// Also used by the search bar and Backlinks (page = PDF page to open at)
+export function FilePreview({ file, onClose, page }: { file: LibraryFile; onClose: () => void; page?: number | null }) {
   const type = fileType(file);
   const url = fileUrl(file.path);
   const [text, setText] = useState<string | null>(null);
@@ -81,7 +82,7 @@ function Preview({ file, onClose }: { file: LibraryFile; onClose: () => void }) 
   if (type === 'image') body = <img src={url} alt={file.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
   else if (type === 'video') body = <video src={url} controls autoPlay style={{ maxWidth: '100%', maxHeight: '100%' }} />;
   else if (type === 'audio') body = <audio src={url} controls autoPlay style={{ width: '80%' }} />;
-  else if (type === 'pdf') body = <iframe src={url} title={file.name} style={frame} />;
+  else if (type === 'pdf') body = <iframe src={page ? `${url}#page=${page}` : url} title={file.name} style={frame} />;
   // Saved pages: no scripts (sandbox) — they are other sites' HTML served from this server
   else if (type === 'web') body = <iframe src={offlineCopyUrl(file)} title={file.name} sandbox="allow-popups allow-popups-to-escape-sandbox" style={frame} />;
   else if (type === 'text') body = <pre style={{ ...frame, background: '#111', color: '#ddd', margin: 0, padding: 16, overflow: 'auto', whiteSpace: 'pre-wrap', fontSize: 13 }}>{text ?? 'Loading…'}</pre>;
@@ -348,6 +349,9 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
                   {formatSize(f.size)} · {new Date(f.created_at).toLocaleDateString()}
                   {f.source_url && <> · from <a href={f.source_url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>{(() => { try { return new URL(f.source_url).hostname; } catch { return 'link'; } })()}</a></>}
                   {f.document_id && <> · 📄 in Docs</>}
+                  {f.text_status === 'done' && <> · 🔎 text searchable{f.text_pages && f.text_pages > 1 ? ` (${f.text_pages} ${pageLabel(f.name)}s)` : ''}</>}
+                  {f.text_status === 'empty' && <span title="Pictures and scanned PDFs have no text to read yet"> · no text found</span>}
+                  {f.text_status === 'failed' && <span style={{ color: '#ef4444' }}> · couldn&apos;t read text</span>}
                   {!isLibrary && f.kind === 'found' && <> · found in cloud_data</>}
                 </div>
               </div>
@@ -374,7 +378,7 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
           Drop to upload{isLibrary ? '' : ' to this node'}
         </div>
       )}
-      {preview && <Preview file={preview} onClose={() => setPreview(null)} />}
+      {preview && <FilePreview file={preview} onClose={() => setPreview(null)} />}
     </div>
   );
 }

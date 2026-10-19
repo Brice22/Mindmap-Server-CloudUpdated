@@ -19,11 +19,14 @@ const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
 interface Backlink {
   kind: 'link' | 'mention';
-  source_type: 'doc' | 'drawing' | 'description' | 'map';
+  source_type: 'doc' | 'drawing' | 'description' | 'map' | 'file';
   source_id: number;
   source_node_id: number | null;
   source_node_name: string | null;
   doc_title: string | null;
+  file_name?: string | null;     // source_type 'file': text read from a PDF, Word file, …
+  file_path?: string | null;
+  file_mime?: string | null;
   snippet: string | null;
 }
 
@@ -33,15 +36,16 @@ interface BacklinksPanelProps {
   refreshKey: number;                                           // bump to re-fetch (e.g. after closing the workspace)
   onSelectNode: (node: Node) => void;
   onUpdateNode: (nodeId: number, updates: Partial<Node>) => void;
+  onOpenFile?: (file: { id: number; name: string; path: string; mime: string | null }) => void;   // preview a file that mentions this node
 }
 
-const ICONS: Record<Backlink['source_type'], string> = { doc: '📄', drawing: '✏️', description: '📝', map: '📍' };
+const ICONS: Record<Backlink['source_type'], string> = { doc: '📄', drawing: '✏️', description: '📝', map: '📍', file: '📎' };
 
 function metaOf(n: Node): any {
   return typeof n.metadata === 'string' ? JSON.parse(n.metadata || '{}') : n.metadata || {};
 }
 
-export default function BacklinksPanel({ node, nodes, refreshKey, onSelectNode, onUpdateNode }: BacklinksPanelProps) {
+export default function BacklinksPanel({ node, nodes, refreshKey, onSelectNode, onUpdateNode, onOpenFile }: BacklinksPanelProps) {
   const [links, setLinks] = useState<Backlink[]>([]);
   const [loading, setLoading] = useState(false);
   const aliases: string[] = Array.isArray(metaOf(node).aliases) ? metaOf(node).aliases : [];
@@ -82,6 +86,7 @@ export default function BacklinksPanel({ node, nodes, refreshKey, onSelectNode, 
     if (l.source_type === 'doc') return `${l.doc_title || 'Document'} · ${where}`;
     if (l.source_type === 'drawing') return `Draw notes · ${where}`;
     if (l.source_type === 'map') return `Map pin · ${where}`;
+    if (l.source_type === 'file') return `${l.file_name || 'File'} · ${l.source_node_name || 'no node'}`;
     return `Description · ${where}`;
   };
 
@@ -89,9 +94,12 @@ export default function BacklinksPanel({ node, nodes, refreshKey, onSelectNode, 
     const source = nodes.find(n => n.id === l.source_node_id);
     return (
       <div key={`${l.source_type}-${l.source_id}-${i}`}
-        onClick={() => source && onSelectNode(source)}
-        title={source ? `Select ${source.name}` : 'Its node was deleted'}
-        style={{ padding: '6px 4px', borderBottom: '1px solid #2a2a2a', cursor: source ? 'pointer' : 'default' }}>
+        onClick={() => {
+          if (l.source_type === 'file' && l.file_path && onOpenFile) onOpenFile({ id: l.source_id, name: l.file_name || 'File', path: l.file_path, mime: l.file_mime ?? null });
+          else if (source) onSelectNode(source);
+        }}
+        title={l.source_type === 'file' ? 'Open the file' : source ? `Select ${source.name}` : 'Its node was deleted'}
+        style={{ padding: '6px 4px', borderBottom: '1px solid #2a2a2a', cursor: source || l.source_type === 'file' ? 'pointer' : 'default' }}>
         <div style={{ color: '#60a5fa', fontSize: 13 }}>{ICONS[l.source_type]} {label(l)}</div>
         {l.snippet && <div style={{ color: '#888', fontSize: 11, marginTop: 2, lineHeight: 1.35 }}>{l.snippet}</div>}
       </div>

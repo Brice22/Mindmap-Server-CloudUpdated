@@ -25,8 +25,9 @@
 import { Injectable, Inject, Logger } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { FlashcardSyncService } from './flashcard-sync.service';
+import { SearchService } from './search.service';
 
-type SourceType = 'doc' | 'drawing' | 'description' | 'map';
+type SourceType = 'doc' | 'drawing' | 'description' | 'map' | 'file';
 type Kind = 'link' | 'mention';
 
 interface Target { id: number; name: string; names: string[]; re: RegExp | null; bbox: [number, number, number, number] | null }
@@ -121,7 +122,10 @@ export class BacklinksService {
     constructor(
       @Inject(DatabaseService) private readonly db: DatabaseService,
       @Inject(FlashcardSyncService) private readonly flashcards: FlashcardSyncService,
+      @Inject(SearchService) private readonly search: SearchService,
     ) {
+    // Search reads node and document text the same way backlinks do
+    this.search.setExtractors({ doc: extractDocText, drawing: extractDrawingText });
   // First start after this feature is added: build links for everything already written
     setTimeout(() => this.enqueue(() => this.buildIfEmpty()), 8000);
   }
@@ -233,6 +237,7 @@ export class BacklinksService {
       }
     }
     await this.replaceSource('doc', doc.id, doc.node_id, found);
+    await this.search.indexDocument(doc, `${text}`);   // search bar / MeiliSearch
 
     // Keep the doc's places for the Map overlays
     await this.db.query('DELETE FROM doc_places WHERE document_id = $1', [doc.id]);
@@ -279,6 +284,7 @@ export class BacklinksService {
     const areaChanged = JSON.stringify(oldMeta.mapArea?.bbox || null) !== JSON.stringify(newMeta.mapArea?.bbox || null);
     // Moving a node on the graph changes none of these — nothing to do
     if (!nameChanged && !textChanged && !aliasesChanged && !areaChanged) return;
+    await this.search.indexNode(newRow);   // search bar / MeiliSearch
 
     // Renamed: keep the old name as an alias so text that uses it stays linked
     if (oldRow && nameChanged && oldRow.name && oldRow.name.trim().toLowerCase() !== String(newRow.name).trim().toLowerCase()) {
@@ -325,6 +331,34 @@ export class BacklinksService {
       [nodeId, likes],
     );
     for (const n of nodes.rows) await this.reindexNode(n.id, targets);
+
+    // Text read from files (PDF, Word, slides, …)
+    const files = await this.db.query(
+      `SELECT DISTINCT source_id AS id FROM node_backlinks WHERE target_node_id = $1 AND source_type = 'file'
+       UNION
+       SELECT DISTINCT file_id FROM file_texts WHERE text ILIKE ANY($2)
+       UNION
+       SELECT id FROM files WHERE name ILIKE ANY($2)`,
+      [nodeId, likes],
+    );
+    for (const f of files.rows) await this.reindexFile(f.id, targets);
+  }
+
+  // ------------------------------------------------------------
+  // FILES (text read by FileTextService)
+  // ------------------------------------------------------------
+  async reindexFile(fileId: number, targets?: Target[]) {
+    const file = (await this.db.query('SELECT id, name, node_id FROM files WHERE id = $1', [fileId])).rows[0];
+    if (!file) return this.removeFile(fileId);
+    const pages = (await this.db.query('SELECT text FROM file_texts WHERE file_id = $1 ORDER BY page', [fileId])).rows;
+    // The first ~2 million characters are scanned (a whole textbook would be slow)
+    const text = `${file.name}\n${pages.map((p: any) => p.text).join('\n')}`.slice(0, 2_000_000);
+    const all = targets || await this.loadTargets();
+    await this.replaceSource('file', file.id, file.node_id, this.findLinks(text, [], all, file.node_id));
+  }
+
+  async removeFile(fileId: number) {
+    await this.db.query(`DELETE FROM node_backlinks WHERE source_type = 'file' AND source_id = $1`, [fileId]);
   }
 
   async afterNodeDeleted(nodeId: number) {
@@ -333,11 +367,13 @@ export class BacklinksService {
       `DELETE FROM node_backlinks WHERE source_type IN ('description', 'drawing', 'map') AND source_id = $1`,
       [nodeId],
     );
+    await this.search.removeNode(nodeId);
   }
 
    async removeDocument(docId: number) {
     await this.db.query(`DELETE FROM node_backlinks WHERE source_type = 'doc' AND source_id = $1`, [docId]);
     await this.db.query('DELETE FROM doc_places WHERE document_id = $1', [docId]);
+    await this.search.removeDocument(docId);
   }
 
   // 📍 places from Docs — for one node (its own and linked docs) or for everything
@@ -363,8 +399,10 @@ export class BacklinksService {
     const docs = await this.db.query('SELECT id FROM node_documents');
     for (const d of docs.rows) await this.reindexDocument(d.id, targets);
     for (const t of targets) await this.reindexNode(t.id, targets);
-    this.logger.log(`Backlinks rebuilt: ${docs.rows.length} documents, ${targets.length} nodes`);
-    return { documents: docs.rows.length, nodes: targets.length };
+    const files = await this.db.query(`SELECT id FROM files WHERE text_status = 'done'`);
+    for (const f of files.rows) await this.reindexFile(f.id, targets);
+    this.logger.log(`Backlinks rebuilt: ${docs.rows.length} documents, ${targets.length} nodes, ${files.rows.length} files`);
+    return { documents: docs.rows.length, nodes: targets.length, files: files.rows.length };
   }
 
   private async buildIfEmpty() {
@@ -378,10 +416,12 @@ export class BacklinksService {
   async getBacklinks(nodeId: number) {
     const res = await this.db.query(
       `SELECT b.kind, b.source_type, b.source_id, b.source_node_id, b.snippet,
-              sn.name AS source_node_name, d.title AS doc_title
+              sn.name AS source_node_name, d.title AS doc_title,
+              f.name AS file_name, f.path AS file_path, f.mime AS file_mime
        FROM node_backlinks b
        LEFT JOIN mindmap_nodes sn ON sn.id = b.source_node_id
        LEFT JOIN node_documents d ON b.source_type = 'doc' AND d.id = b.source_id
+       LEFT JOIN files f ON b.source_type = 'file' AND f.id = b.source_id
        WHERE b.target_node_id = $1
        ORDER BY (b.kind = 'link') DESC, b.created_at DESC`,
       [nodeId],

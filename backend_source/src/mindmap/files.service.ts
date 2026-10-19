@@ -16,6 +16,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { DatabaseService } from '../database/database.service';
 import { TrashService } from './trash.service';
+import { FileTextService } from './file-text.service';
 import { UPLOAD_ROOT, TRASH_DIR, absPath, relPath, movePath, mimeFromName } from './uploads';
 
 const SCAN_LIMIT = 50_000;     // stop after this many files per scan
@@ -50,6 +51,7 @@ export class FilesService {
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(TrashService) private readonly trash: TrashService,
+    @Inject(FileTextService) private readonly fileText: FileTextService,
   ) {}
 
   async register(f: NewFile) {
@@ -62,6 +64,9 @@ export class FilesService {
       [f.path, f.name, f.mime || mimeFromName(f.name), f.size || 0, f.nodeId ?? null,
        f.sourceUrl ?? null, f.kind || 'upload', f.documentId ?? null],
     );
+    // Same path again (file replaced): read its text again
+    await this.db.query('UPDATE files SET text_status = NULL WHERE id = $1', [res.rows[0].id]);
+    this.fileText.kick();   // read its text in the background (search + backlinks)
     return res.rows[0];
   }
 
@@ -70,7 +75,8 @@ export class FilesService {
     const params: any[] = [];
     if (opts.search?.trim()) {
       params.push(`%${opts.search.trim()}%`);
-      where.push(`(f.name ILIKE $${params.length} OR f.path ILIKE $${params.length} OR f.source_url ILIKE $${params.length})`);
+      where.push(`(f.name ILIKE $${params.length} OR f.path ILIKE $${params.length} OR f.source_url ILIKE $${params.length}
+                   OR EXISTS (SELECT 1 FROM file_texts t WHERE t.file_id = f.id AND t.text ILIKE $${params.length}))`);
     }
     if (opts.nodeId) {
       params.push(opts.nodeId);
@@ -119,6 +125,7 @@ export class FilesService {
     }
     await this.trash.saveFile(file, what, trashPath);
     await this.db.query('DELETE FROM files WHERE id = $1', [id]);
+    this.fileText.forget(id);
     return { success: true };
   }
 
@@ -173,9 +180,11 @@ export class FilesService {
     for (const [rel, id] of known) {
       if (!fs.existsSync(absPath(rel))) {
         await this.db.query('DELETE FROM files WHERE id = $1', [id]);
+        this.fileText.forget(id);
         removed++;
       }
     }
+    if (found.length) this.fileText.kick();   // read the new files' text
     if (found.length || removed) this.logger.log(`Files scan: ${found.length} added, ${removed} removed`);
     return { added: found.length, removed };
   }
