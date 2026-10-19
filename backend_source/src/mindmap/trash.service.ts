@@ -131,8 +131,8 @@ export class TrashService {
       return { type: 'node', row };
     }
 
-    if (item.item_type === 'file') {
-      const file = { ...data.file };
+       if (item.item_type === 'file') {
+      const file = { ...data.file, text_status: null };   // its text is read again (search + backlinks)
       // Move it back (a number is added to the name if something new took its place)
       if (data.trashPath) {
         const back = await movePath(data.trashPath, data.originalPath);

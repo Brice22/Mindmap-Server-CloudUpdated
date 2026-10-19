@@ -14,6 +14,8 @@ export interface LibraryFile {
   kind: 'upload' | 'web' | 'found';
   document_id: number | null;
   document_title?: string | null;
+  text_status?: 'done' | 'empty' | 'skipped' | 'failed' | null;   // text read for search (null = not yet)
+  text_pages?: number | null;
   created_at: string;
 }
 
@@ -43,6 +45,15 @@ export const FILE_ICONS: Record<FileType, string> = {
   image: '🖼️', video: '🎬', audio: '🎵', pdf: '📕', text: '📝', web: '🌐', other: '📦',
 };
 
+  // What a "page" of a file is called (PDF page, slide, sheet, part of a long text)
+  export function pageLabel(nameOrPath: string): string {
+    const ext = (nameOrPath.split('.').pop() || '').toLowerCase();
+    if (ext === 'pdf') return 'page';
+    if (ext === 'pptx' || ext === 'odp') return 'slide';
+    if (ext === 'xlsx' || ext === 'ods') return 'sheet';
+    if (ext === 'epub') return 'chapter';
+    return 'part';
+  }
 export function formatSize(size: number | string): string {
   const n = Number(size) || 0;
   if (n < 1024) return `${n} B`;

@@ -251,6 +251,15 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
         `CREATE INDEX IF NOT EXISTS idx_files_node ON files(node_id)`,
+                // Text read from files (one row per PDF page / slide / sheet / part) — search + backlinks
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS text_status TEXT`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS text_pages INTEGER`,
+        `CREATE TABLE IF NOT EXISTS file_texts (
+          file_id INTEGER NOT NULL REFERENCES files(id) ON DELETE CASCADE,
+          page INTEGER NOT NULL,
+          text TEXT NOT NULL,
+          PRIMARY KEY (file_id, page)
+        )`,
                 // Flashcards written in Docs: which document and block each one came from
         `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES node_documents(id) ON DELETE CASCADE`,
         `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS block_id TEXT`,

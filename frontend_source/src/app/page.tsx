@@ -47,7 +47,7 @@ import NewsfeedView from './components/NewsfeedView';
 import QuizCenter from './components/QuizCenter';
 import NetworkPanel from './components/NetworkPanel';
 import TrashView from './components/TrashView';
-  import FilesPanel from './components/FilesPanel';
+import FilesPanel, { FilePreview } from './components/FilesPanel';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel } from '@/lib/types';
 // ============================================================
 // API BASE URL
@@ -104,6 +104,16 @@ export default function Dashboard() {
   const [workspaceNode, setWorkspaceNode] = useState<Node | null>(null);
   const [workspaceOpenPanel, setWorkspaceOpenPanel] = useState<Panel['type'] | undefined>(undefined);
   const [quizFocusNodeId, setQuizFocusNodeId] = useState<number | null>(null);   // "🧪 Study this node" → its deck in Quiz Center
+  const [previewFile, setPreviewFile] = useState<{ file: any; page?: number | null } | null>(null);   // file opened from search / Backlinks
+
+    // Open a document (from search) in its node's Docs window
+    const openDocument = (docId: number, nodeId: number | null) => {
+      const home = nodes.find(n => n.id === nodeId);
+      if (!home) { alert('This document is Unfiled. Open any node → Docs → 🔗 Link existing to give it a home.'); return; }
+      try { localStorage.setItem(`hserver:doc:${home.id}`, String(docId)); } catch {}   // Docs opens the remembered document
+      setWorkspaceOpenPanel('docs');
+      setWorkspaceNode(home);
+    };
 
   // --------------------------------------------------------
   // STATE: Backlinks (dashed link lines on the graph + Inspector refresh)
@@ -733,6 +743,8 @@ export default function Dashboard() {
             nodeTypes={['person', 'medical', 'concept', 'location']}
             allNodes={nodes}
             onSelectNode={(node) => { setSelectedNode(node); setActiveView('graph'); if (!rightPanelOpen) setRightPanelOpen(true); }}
+            onOpenDocument={openDocument}
+            onOpenFile={(file, page) => setPreviewFile({ file, page })}
           />
           {/* GRAPH VIEW */}
           {activeView === 'graph' && (
@@ -1010,6 +1022,10 @@ export default function Dashboard() {
               <FilesPanel nodes={nodes} />
             )}
 
+          
+              {/* A file opened from the search bar or Backlinks */}
+              {previewFile && <FilePreview file={previewFile.file} page={previewFile.page} onClose={() => setPreviewFile(null)} />}
+
           {activeView === 'trash' && (
             <TrashView onRestored={fetchNodes} />
           )}
@@ -1101,6 +1117,7 @@ export default function Dashboard() {
                     refreshKey={backlinksRefresh}
                     onSelectNode={handleNodeClick}
                     onUpdateNode={updateNode}
+                    onOpenFile={(file) => setPreviewFile({ file })}
                   />
 
                   {/* Photo — above the Quick Notes */}
