@@ -260,6 +260,21 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           text TEXT NOT NULL,
           PRIMARY KEY (file_id, page)
         )`,
+                // OCR + video/audio copies (FFmpeg)
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS ocr_at TIMESTAMP`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS media_status TEXT`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS media_info JSONB`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS media_progress REAL`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS play_path TEXT`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS thumb_path TEXT`,
+        `ALTER TABLE files ADD COLUMN IF NOT EXISTS small_path TEXT`,
+        // Finished torrents already added to the file library
+        `CREATE TABLE IF NOT EXISTS torrent_imports (
+          hash TEXT PRIMARY KEY,
+          name TEXT,
+          file_ids INTEGER[] DEFAULT '{}',
+          imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
                 // Flashcards written in Docs: which document and block each one came from
         `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES node_documents(id) ON DELETE CASCADE`,
         `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS block_id TEXT`,

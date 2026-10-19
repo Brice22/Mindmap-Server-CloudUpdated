@@ -14,10 +14,13 @@
 //   - searched by 📁 Files and the search bar (MeiliSearch)
 //   - scanned for backlinks, like Docs (a PDF that mentions
 //     "Chess Club" links to that node)
-// Pictures and scanned PDFs have no text to read (OCR is a later
-// step) — they are marked "empty". Saved web pages are skipped:
-// their text is already a document.
-// files.text_status: NULL = not read yet · done · empty · skipped · failed
+// OCR (tesseract): pictures, and PDF pages that are scans (no text
+// layer), are read as images — handwriting and photos of notes work
+// best when they're sharp. Without tesseract (e.g. on the laptop) they
+// wait as "needs-ocr" and are read once it's installed.
+// Saved web pages are skipped: their text is already a document.
+// files.text_status: NULL = not read yet · done · empty · skipped · failed · needs-ocr
+// files.ocr_at: when OCR was tried on the file
 // ============================================================
 
 import { Injectable, Inject, Logger } from '@nestjs/common';
@@ -29,6 +32,7 @@ import { DatabaseService } from '../database/database.service';
 import { BacklinksService } from './backlinks.service';
 import { SearchService } from './search.service';
 import { absPath } from './uploads';
+import { hasTool, ocrImage, ocrPdfPage } from './media-tools';
 
 const MAX_FILE_BYTES = 200 * 1024 * 1024;   // bigger files are not read
 const MAX_CHARS = 5_000_000;                // text kept per file
@@ -37,6 +41,11 @@ const PART_CHARS = 4000;                    // long text without pages is split 
 const TEXT_EXT = new Set(['txt', 'md', 'markdown', 'csv', 'tsv', 'json', 'tex', 'srt', 'vtt', 'log', 'yaml', 'yml', 'xml', 'ini', 'rtf', 'py', 'js', 'ts', 'c', 'cpp', 'h', 'java', 'cs', 'm', 'r', 'sql']);
 const HTML_EXT = new Set(['html', 'htm', 'xhtml']);
 const ZIP_EXT = new Set(['docx', 'pptx', 'xlsx', 'odt', 'odp', 'ods', 'epub']);
+const IMAGE_EXT = new Set(['png', 'jpg', 'jpeg', 'webp', 'tif', 'tiff', 'bmp', 'gif', 'pnm']);
+const OCR_MAX_PDF_PAGES = 300;              // scanned pages read per PDF
+const SCANNED_PAGE_CHARS = 25;              // a PDF page with less text than this is treated as a scan
+
+type Extracted = { pages: string[]; ocr?: boolean } | null | 'needs-ocr';
 
 // ------------------------------------------------------------
 // small helpers
@@ -147,8 +156,19 @@ export class FileTextService {
   ) {
     // Files added before this feature (or while the server was off) get read too,
     // and files restored from the Trash are picked up within a minute
-    setTimeout(() => this.kick(), 20_000);
+    setTimeout(() => this.prepareOcr().finally(() => this.kick()), 20_000);
     setInterval(() => this.kick(), 60_000);
+  }
+
+  // Once OCR is available, pictures and scanned PDFs that were never OCR'd get read again
+  private async prepareOcr() {
+    if (!(await hasTool('tesseract'))) { this.logger.warn('tesseract not installed — pictures and scanned PDFs wait for OCR'); return; }
+    const res = await this.db.query(
+      `UPDATE files SET text_status = NULL
+       WHERE ocr_at IS NULL AND text_status IN ('needs-ocr', 'skipped', 'empty')
+         AND (mime LIKE 'image/%' OR mime = 'application/pdf' OR lower(name) ~ '\\.(png|jpe?g|webp|tiff?|bmp|gif|pdf)$')`,
+    ).catch(() => ({ rowCount: 0 }));
+    if (res.rowCount) this.logger.log(`OCR: ${res.rowCount} picture(s)/scanned PDF(s) queued`);
   }
 
   // Read any files that haven't been read yet (runs in the background, one file at a time)
@@ -172,12 +192,14 @@ export class FileTextService {
     if (!file) return;
     let status = 'done';
     let pages: string[] = [];
+    let usedOcr = false;
     try {
-      if (file.path.startsWith('web/')) status = 'skipped';            // saved page: its text is a document
+      if (file.path.startsWith('web/') || file.path.startsWith('derived/')) status = 'skipped';   // saved page / converted copy
       else {
         const got = await this.extract(file.path, file.name, file.mime);
         if (got === null) status = 'skipped';                           // a kind of file we can't read (yet)
-        else pages = got;
+        else if (got === 'needs-ocr') status = 'needs-ocr';             // picture/scan, tesseract not installed
+        else { pages = got.pages; usedOcr = !!got.ocr; }
       }
     } catch (e: any) {
       status = 'failed';
@@ -194,8 +216,11 @@ export class FileTextService {
       if (!pages[i].trim()) continue;
       await this.db.query('INSERT INTO file_texts (file_id, page, text) VALUES ($1, $2, $3)', [fileId, i + 1, pages[i]]);
     }
-    await this.db.query('UPDATE files SET text_status = $2, text_pages = $3 WHERE id = $1', [fileId, status, pages.length || null]);
-    if (status === 'done') this.logger.log(`Read "${file.name}": ${pages.length} page(s)`);
+    await this.db.query(
+      `UPDATE files SET text_status = $2, text_pages = $3, ocr_at = CASE WHEN $4 THEN CURRENT_TIMESTAMP ELSE ocr_at END WHERE id = $1`,
+      [fileId, status, pages.length || null, usedOcr],
+    );
+    if (status === 'done') this.logger.log(`Read "${file.name}": ${pages.length} page(s)${usedOcr ? ' (OCR)' : ''}`);
 
     // Backlinks (in the backlinks job queue) and search
     this.backlinks.enqueue(() => this.backlinks.reindexFile(fileId));
@@ -208,26 +233,45 @@ export class FileTextService {
     this.search.removeFile(fileId).catch(() => {});
   }
 
-  // null = a kind of file we can't read
-  private async extract(rel: string, name: string, mime: string | null): Promise<string[] | null> {
+  // null = a kind of file we can't read · 'needs-ocr' = a picture/scan and no tesseract yet
+  private async extract(rel: string, name: string, mime: string | null): Promise<Extracted> {
     const ext = path.extname(name || rel).slice(1).toLowerCase() || path.extname(rel).slice(1).toLowerCase();
     const type = String(mime || '').toLowerCase();
     const isPdf = ext === 'pdf' || type === 'application/pdf';
     const isZip = ZIP_EXT.has(ext);
     const isHtml = HTML_EXT.has(ext) || type === 'text/html';
     const isText = TEXT_EXT.has(ext) || type.startsWith('text/') || type === 'application/json';
-    if (!isPdf && !isZip && !isHtml && !isText) return null;
+    const isImage = IMAGE_EXT.has(ext) || (type.startsWith('image/') && type !== 'image/svg+xml');
+    if (!isPdf && !isZip && !isHtml && !isText && !isImage) return null;
 
     const abs = absPath(rel);
     const st = await fs.promises.stat(abs);
     if (st.size > MAX_FILE_BYTES) return null;
-    const data = await fs.promises.readFile(abs);
 
-    if (isPdf) return readPdf(data);
-    if (isZip) return readZip(data, ext);
+    // Pictures: OCR
+    if (isImage) {
+      if (!(await hasTool('tesseract'))) return 'needs-ocr';
+      return { pages: [tidy(await ocrImage(abs))], ocr: true };
+    }
+
+    const data = await fs.promises.readFile(abs);
+    if (isPdf) {
+      const pages = await readPdf(data);
+      // Pages without a text layer are scans → OCR them
+      const scanned = pages.map((p, i) => (p.replace(/\s/g, '').length < SCANNED_PAGE_CHARS ? i : -1)).filter(i => i >= 0);
+      if (!scanned.length) return { pages };
+      if (!(await hasTool('tesseract')) || !(await hasTool('pdftoppm'))) {
+        return scanned.length === pages.length ? 'needs-ocr' : { pages };
+      }
+      for (const i of scanned.slice(0, OCR_MAX_PDF_PAGES)) {
+        try { pages[i] = tidy(await ocrPdfPage(abs, i + 1)); } catch (e: any) { this.logger.warn(`OCR page ${i + 1}: ${e?.message}`); }
+      }
+      return { pages, ocr: true };
+    }
+    if (isZip) return { pages: readZip(data, ext) };
     const text = data.toString('utf8');
-    if (isHtml) return splitParts(tidy(parseHTML(text).document.body?.textContent || ''));
-    if (ext === 'rtf') return splitParts(tidy(text.replace(/\\par[d]?/g, '\n').replace(/\{\\[^{}]*\}|\\[a-z]+-?\d* ?|[{}]/gi, '')));
-    return splitParts(text);
+    if (isHtml) return { pages: splitParts(tidy(parseHTML(text).document.body?.textContent || '')) };
+    if (ext === 'rtf') return { pages: splitParts(tidy(text.replace(/\\par[d]?/g, '\n').replace(/\{\\[^{}]*\}|\\[a-z]+-?\d* ?|[{}]/gi, ''))) };
+    return { pages: splitParts(text) };
   }
 }

@@ -1,68 +1,70 @@
-import { Controller, Get, Post, Delete, Body, Query } from '@nestjs/common';
+// ============================================================
+// PI-HOLE ROUTES  (/api/pihole/...)
+// ============================================================
+// GET    status                      on/off, today's numbers, devices using it
+// POST   blocking   {enabled, seconds?}   turn off (for N seconds) / on
+// GET    domains                     your always-block / always-allow domains
+// POST   domains    {domain, type: 'allow'|'deny'}
+// DELETE domains/:type/:kind/:domain
+// GET    lists                       blocklists + one-click presets
+// POST   lists      {address}        add a blocklist
+// PUT    lists      {address, enabled}
+// DELETE lists?address=…
+// POST   lists/update                download the lists again (gravity)
+// GET    blocked?client=…            recently blocked domains
+// ============================================================
 
-const PIHOLE_URL = 'http://pihole:80/admin/api.php';
-const PIHOLE_TOKEN = process.env.PIHOLE_API_TOKEN || '';
+import { Controller, Get, Post, Put, Delete, Body, Param, Query, Inject } from '@nestjs/common';
+import { PiholeService } from './pihole.service';
 
 @Controller('pihole')
 export class PiholeController {
+  constructor(@Inject(PiholeService) private readonly pihole: PiholeService) {}
+
   @Get('status')
-  async getStatus() {
-    try {
-      const res = await fetch(`${PIHOLE_URL}?summary&auth=${PIHOLE_TOKEN}`);
-      return await res.json();
-    } catch {
-      return { status: 'unavailable' };
-    }
+  status() { return this.pihole.status(); }
+
+  @Post('blocking')
+  setBlocking(@Body() body: { enabled: boolean; seconds?: number | null }) {
+    return this.pihole.setBlocking(body.enabled, body.seconds);
   }
 
-  @Post('enable')
-  async enable() {
-    try {
-      await fetch(`${PIHOLE_URL}?enable&auth=${PIHOLE_TOKEN}`);
-      return { enabled: true };
-    } catch {
-      return { error: 'Pi-hole unavailable' };
-    }
+  @Get('domains')
+  domains() { return this.pihole.domains(); }
+
+  @Post('domains')
+  addDomain(@Body() body: { domain: string; type: 'allow' | 'deny'; kind?: 'exact' | 'regex' }) {
+    return this.pihole.addDomain(body.domain, body.type, body.kind || 'exact');
   }
 
-  @Post('disable')
-  async disable(@Body() body: { seconds?: number }) {
-    try {
-      const duration = body.seconds || 0;
-      await fetch(`${PIHOLE_URL}?disable=${duration}&auth=${PIHOLE_TOKEN}`);
-      return { enabled: false, duration };
-    } catch {
-      return { error: 'Pi-hole unavailable' };
-    }
+  @Delete('domains/:type/:kind/:domain')
+  removeDomain(@Param('type') type: string, @Param('kind') kind: string, @Param('domain') domain: string) {
+    return this.pihole.removeDomain(type, kind, domain);
   }
 
-  @Post('blacklist')
-  async addBlacklist(@Body() body: { domain: string }) {
-    try {
-      await fetch(`${PIHOLE_URL}?list=black&add=${body.domain}&auth=${PIHOLE_TOKEN}`);
-      return { added: body.domain, type: 'blacklist' };
-    } catch {
-      return { error: 'Pi-hole unavailable' };
-    }
+  @Get('lists')
+  lists() { return this.pihole.lists(); }
+
+  @Post('lists/update')
+  updateLists() { return this.pihole.updateLists(); }
+
+  @Post('lists')
+  addList(@Body() body: { address: string; comment?: string }) {
+    return this.pihole.addList(body.address, body.comment);
   }
 
-  @Post('whitelist')
-  async addWhitelist(@Body() body: { domain: string }) {
-    try {
-      await fetch(`${PIHOLE_URL}?list=white&add=${body.domain}&auth=${PIHOLE_TOKEN}`);
-      return { added: body.domain, type: 'whitelist' };
-    } catch {
-      return { error: 'Pi-hole unavailable' };
-    }
+  @Put('lists')
+  setListEnabled(@Body() body: { address: string; enabled: boolean }) {
+    return this.pihole.setListEnabled(body.address, body.enabled);
   }
 
-  @Delete('blacklist')
-  async removeBlacklist(@Body() body: { domain: string }) {
-    try {
-      await fetch(`${PIHOLE_URL}?list=black&sub=${body.domain}&auth=${PIHOLE_TOKEN}`);
-      return { removed: body.domain };
-    } catch {
-      return { error: 'Pi-hole unavailable' };
-    }
+  @Delete('lists')
+  removeList(@Query('address') address: string) {
+    return this.pihole.removeList(address);
+  }
+
+  @Get('blocked')
+  blocked(@Query('client') client?: string) {
+    return this.pihole.recentBlocked(client);
   }
 }

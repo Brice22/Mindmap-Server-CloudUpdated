@@ -16,8 +16,9 @@
 
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { Node } from '@/lib/types';
+import TorrentsPanel from './TorrentsPanel';
 import {
-  type LibraryFile, type FileType, fileUrl, fileType, formatSize, isWebPage, offlineCopyUrl, FILE_ICONS, pageLabel,
+  type LibraryFile, type FileType, fileUrl, fileType, formatSize, isWebPage, offlineCopyUrl, FILE_ICONS, pageLabel, playUrl, formatDuration,
 } from '@/lib/files';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
@@ -65,6 +66,7 @@ export function FilePreview({ file, onClose, page }: { file: LibraryFile; onClos
   const type = fileType(file);
   const url = fileUrl(file.path);
   const [text, setText] = useState<string | null>(null);
+  const [small, setSmall] = useState(false);   // play the 720p copy (away from home)
 
   useEffect(() => {
     if (type !== 'text') return;
@@ -80,8 +82,16 @@ export function FilePreview({ file, onClose, page }: { file: LibraryFile; onClos
   const frame: React.CSSProperties = { width: '100%', height: '100%', border: 'none', background: '#fff', borderRadius: 4 };
   let body: React.ReactNode;
   if (type === 'image') body = <img src={url} alt={file.name} style={{ maxWidth: '100%', maxHeight: '100%', objectFit: 'contain' }} />;
-  else if (type === 'video') body = <video src={url} controls autoPlay style={{ maxWidth: '100%', maxHeight: '100%' }} />;
-  else if (type === 'audio') body = <audio src={url} controls autoPlay style={{ width: '80%' }} />;
+  else if (type === 'video') {
+    const src = small && file.small_path ? fileUrl(file.small_path) : playUrl(file);
+    body = (
+      <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 8, maxWidth: '100%', maxHeight: '100%' }}>
+        {file.media_status === 'converting' && <div style={{ color: '#f59e0b', fontSize: 12 }}>Still converting for the browser ({Math.round(file.media_progress || 0)}%) — it may not play until that finishes.</div>}
+        <video key={src} src={src} controls autoPlay style={{ maxWidth: '100%', maxHeight: 'calc(100vh - 140px)' }} />
+      </div>
+    );
+  }
+  else if (type === 'audio') body = <audio src={playUrl(file)} controls autoPlay style={{ width: '80%' }} />;
   else if (type === 'pdf') body = <iframe src={page ? `${url}#page=${page}` : url} title={file.name} style={frame} />;
   // Saved pages: no scripts (sandbox) — they are other sites' HTML served from this server
   else if (type === 'web') body = <iframe src={offlineCopyUrl(file)} title={file.name} sandbox="allow-popups allow-popups-to-escape-sandbox" style={frame} />;
@@ -94,6 +104,11 @@ export function FilePreview({ file, onClose, page }: { file: LibraryFile; onClos
       <div style={{ display: 'flex', alignItems: 'center', gap: 10, color: '#ddd', marginBottom: 10 }}>
         <span style={{ flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 }}>{FILE_ICONS[type]} {file.name}</span>
         {type === 'web' && <a href={fileUrl(file.path)} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none' }}>Full page</a>}
+        {type === 'video' && file.small_path && (
+          <button onClick={() => setSmall(s => !s)} title="The 720p copy loads faster away from home" style={{ ...btn, background: small ? '#0070f3' : '#333', color: '#fff' }}>
+            {small ? '📶 720p' : 'Full quality'}
+          </button>
+        )}
         {file.source_url && <a href={file.source_url} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none' }}>Original ↗</a>}
         <a href={url} download={type === 'web' ? undefined : file.name} target="_blank" rel="noreferrer" style={{ ...btn, textDecoration: 'none' }}>{type === 'web' ? 'Open' : 'Download'}</a>
         <button onClick={onClose} style={btn}>✕ Close</button>
@@ -176,6 +191,7 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
   const [linkUrl, setLinkUrl] = useState('');
   const [savingLink, setSavingLink] = useState(false);
   const [message, setMessage] = useState<{ text: string; error?: boolean } | null>(null);
+  const [tab, setTab] = useState<'files' | 'torrents'>('files');   // library only: ⬇ Torrents
   const pickerRef = useRef<HTMLInputElement>(null);
   const uploadSeq = useRef(0);
 
@@ -195,6 +211,20 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
     const t = setTimeout(load, 200);
     return () => clearTimeout(t);
   }, [load]);
+
+  // While videos are being converted (or text read), refresh every few seconds to show progress
+  const busy = files.some(f => f.media_status === 'converting' || f.media_status === 'shrinking' || f.media_status === 'queued'
+    || (f.text_status == null && f.kind !== 'web'));
+  useEffect(() => {
+    if (!busy) return;
+    const t = setInterval(load, 3000);
+    return () => clearInterval(t);
+  }, [busy, load]);
+
+  const mediaAction = async (f: LibraryFile, action: 'small' | 'retry') => {
+    try { await fetch(`${API_URL}/api/mindmap/files/${f.id}/media/${action}`, { method: 'POST' }); } catch {}
+    setTimeout(load, 500);
+  };
 
   // The library also picks up files that were put in cloud_data some other way
   useEffect(() => {
@@ -267,6 +297,31 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
   const sortedNodes = useMemo(() => [...nodes].sort((a, b) => a.name.localeCompare(b.name)), [nodes]);
   const totalSize = files.reduce((s, f) => s + (Number(f.size) || 0), 0);
 
+  // Library header with the 📁 Files / ⬇ Torrents switch
+  const libraryHeader = (
+    <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10, flexWrap: 'wrap' }}>
+      <h2 style={{ margin: 0, color: '#fff' }}>📁 Files</h2>
+      <span style={{ fontSize: 12, color: '#777' }}>Everything in your cloud_data — {files.length} shown · {formatSize(totalSize)}</span>
+      <span style={{ marginLeft: 'auto', display: 'flex', gap: 4 }}>
+        {(['files', 'torrents'] as const).map(k => (
+          <button key={k} onClick={() => setTab(k)}
+            style={{ ...btn, background: tab === k ? '#0070f3' : '#2a2a2a', color: tab === k ? '#fff' : '#aaa' }}>
+            {k === 'files' ? '📁 Library' : '⬇ Torrents'}
+          </button>
+        ))}
+      </span>
+    </div>
+  );
+
+  if (isLibrary && tab === 'torrents') {
+    return (
+      <div style={{ flex: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', background: '#1e1e1e', color: '#ccc', fontFamily: 'system-ui, -apple-system, Segoe UI, sans-serif' }}>
+        <div style={{ padding: '16px 24px 10px', borderBottom: '1px solid #333' }}>{libraryHeader}</div>
+        <div style={{ flex: 1, overflowY: 'auto' }}><TorrentsPanel nodes={nodes} /></div>
+      </div>
+    );
+  }
+
   return (
     <div
       onDragOver={e => { if (e.dataTransfer.types.includes('Files')) { e.preventDefault(); setDragging(true); } }}
@@ -276,12 +331,7 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
 
       {/* Toolbar */}
       <div style={{ padding: isLibrary ? '16px 24px 10px' : 8, borderBottom: '1px solid #333' }}>
-        {isLibrary && (
-          <div style={{ display: 'flex', alignItems: 'baseline', gap: 12, marginBottom: 10 }}>
-            <h2 style={{ margin: 0, color: '#fff' }}>📁 Files</h2>
-            <span style={{ fontSize: 12, color: '#777' }}>Everything in your cloud_data — {files.length} shown · {formatSize(totalSize)}</span>
-          </div>
-        )}
+        {isLibrary && libraryHeader}
         <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'wrap' }}>
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search files…" style={{ ...input, flex: '1 1 160px', minWidth: 120 }} />
           <button onClick={() => pickerRef.current?.click()} style={{ ...btn, background: '#0070f3', color: '#fff' }}>⬆ Upload</button>
@@ -331,7 +381,9 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
             <div key={f.id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '6px 8px', borderBottom: '1px solid #2a2a2a' }}>
               <div onClick={() => setPreview(f)} title="Preview"
                 style={{ width: 40, height: 40, flexShrink: 0, borderRadius: 4, background: '#111', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20, cursor: 'pointer', overflow: 'hidden' }}>
-                {t === 'image' ? <img src={fileUrl(f.path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} /> : FILE_ICONS[t]}
+                {t === 'image' ? <img src={fileUrl(f.path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : f.thumb_path ? <img src={fileUrl(f.thumb_path)} alt="" loading="lazy" style={{ width: '100%', height: '100%', objectFit: 'cover' }} />
+                  : FILE_ICONS[t]}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 {renamingId === f.id ? (
@@ -349,8 +401,17 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
                   {formatSize(f.size)} · {new Date(f.created_at).toLocaleDateString()}
                   {f.source_url && <> · from <a href={f.source_url} target="_blank" rel="noreferrer" style={{ color: '#60a5fa' }}>{(() => { try { return new URL(f.source_url).hostname; } catch { return 'link'; } })()}</a></>}
                   {f.document_id && <> · 📄 in Docs</>}
-                  {f.text_status === 'done' && <> · 🔎 text searchable{f.text_pages && f.text_pages > 1 ? ` (${f.text_pages} ${pageLabel(f.name)}s)` : ''}</>}
-                  {f.text_status === 'empty' && <span title="Pictures and scanned PDFs have no text to read yet"> · no text found</span>}
+                  {f.media_info?.duration ? <> · {formatDuration(f.media_info.duration)}</> : null}
+                  {f.media_info?.height ? <> · {f.media_info.height}p</> : null}
+                  {f.text_status === 'done' && <> · 🔎 text searchable{f.ocr_at ? ' (read by OCR)' : ''}{f.text_pages && f.text_pages > 1 ? ` (${f.text_pages} ${pageLabel(f.name)}s)` : ''}</>}
+                  {f.text_status === 'empty' && <span title="No text found (OCR found nothing either)"> · no text found</span>}
+                  {f.text_status === 'needs-ocr' && <span title="Text will be read when tesseract is installed (it is on HServer)"> · waiting for OCR</span>}
+                  {f.media_status === 'converting' && <span style={{ color: '#f59e0b' }}> · converting for the browser {Math.round(f.media_progress || 0)}%</span>}
+                  {f.media_status === 'shrinking' && <span style={{ color: '#f59e0b' }}> · making 720p copy {Math.round(f.media_progress || 0)}%</span>}
+                  {f.media_status === 'done' && <> · ▶ browser copy</>}
+                  {f.small_path && <> · 📶 720p copy</>}
+                  {f.media_status === 'failed' && <span style={{ color: '#ef4444' }}> · couldn&apos;t convert <a onClick={() => mediaAction(f, 'retry')} style={{ color: '#60a5fa', cursor: 'pointer' }}>try again</a></span>}
+                  {f.media_status === 'needs-ffmpeg' && <span title="Videos are converted when ffmpeg is installed (it is on HServer)"> · waiting for FFmpeg</span>}
                   {f.text_status === 'failed' && <span style={{ color: '#ef4444' }}> · couldn&apos;t read text</span>}
                   {!isLibrary && f.kind === 'found' && <> · found in cloud_data</>}
                 </div>
@@ -363,7 +424,10 @@ export default function FilesPanel({ nodeId, nodes = [], onSavedPage }: FilesPan
                   {sortedNodes.map(n => <option key={n.id} value={n.id}>{n.name}</option>)}
                 </select>
               )}
-              <a href={t === 'web' ? offlineCopyUrl(f) : fileUrl(f.path)} target="_blank" rel="noreferrer" title="Open in a new tab" style={{ ...btn, textDecoration: 'none' }}>↗</a>
+              {f.media_info?.vcodec && !f.small_path && f.media_status !== 'shrinking' && f.media_status !== 'converting' && (
+                <button onClick={() => mediaAction(f, 'small')} title="Make a small 720p copy for watching away from home" style={btn}>📶</button>
+              )}
+              <a href={t === 'web' ? offlineCopyUrl(f) : t === 'video' || t === 'audio' ? playUrl(f) : fileUrl(f.path)} target="_blank" rel="noreferrer" title="Open in a new tab" style={{ ...btn, textDecoration: 'none' }}>↗</a>
               {!isLibrary && (
                 <button onClick={() => update(f, { nodeId: null })} title="Take it off this node (stays in 📁 Files)" style={btn}>⛓</button>
               )}

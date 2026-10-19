@@ -78,8 +78,11 @@ export async function removePath(rel: string): Promise<void> {
 const MIME: Record<string, string> = {
   jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', gif: 'image/gif', webp: 'image/webp', avif: 'image/avif',
   svg: 'image/svg+xml', bmp: 'image/bmp', heic: 'image/heic', tif: 'image/tiff', tiff: 'image/tiff', ico: 'image/x-icon',
-  mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo', wmv: 'video/x-ms-wmv',
-  mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', opus: 'audio/opus',
+  
+mp4: 'video/mp4', m4v: 'video/mp4', webm: 'video/webm', mkv: 'video/x-matroska', mov: 'video/quicktime', avi: 'video/x-msvideo', wmv: 'video/x-ms-wmv',
+  flv: 'video/x-flv', mpg: 'video/mpeg', mpeg: 'video/mpeg', m2ts: 'video/mp2t', mts: 'video/mp2t', '3gp': 'video/3gpp', ogv: 'video/ogg', vob: 'video/dvd',
+  wma: 'audio/x-ms-wma', amr: 'audio/amr', ac3: 'audio/ac3', aiff: 'audio/aiff', aif: 'audio/aiff',
+mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', ogg: 'audio/ogg', oga: 'audio/ogg', flac: 'audio/flac', aac: 'audio/aac', opus: 'audio/opus',
   pdf: 'application/pdf', epub: 'application/epub+zip', txt: 'text/plain', md: 'text/markdown', csv: 'text/csv', json: 'application/json',
   html: 'text/html', htm: 'text/html', xml: 'application/xml',
   doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',

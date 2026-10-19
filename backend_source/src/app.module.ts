@@ -12,6 +12,7 @@ import { KeyDBModule } from './keydb/keydb.module';
 import { MetricsModule } from './metrics/metrics.module';
 import { VpnModule } from './vpn/vpn.module';
 import { PiholeModule } from './pihole/pihole.module';
+import { BackupsModule } from './backups/backups.module';
 
 @Module({
   imports: [
@@ -37,6 +38,7 @@ import { PiholeModule } from './pihole/pihole.module';
     MetricsModule,
     VpnModule,
     PiholeModule,
+    BackupsModule,
  ]
 })
 export class AppModule {}

@@ -132,8 +132,9 @@ export class TrashService {
     }
 
        if (item.item_type === 'file') {
-      const file = { ...data.file, text_status: null };   // its text is read again (search + backlinks)
-      // Move it back (a number is added to the name if something new took its place)
+      // its text is read again (search + backlinks) and its video copies are made again
+      const file = { ...data.file, text_status: null, ocr_at: null, media_status: null, media_progress: null, play_path: null, thumb_path: null, small_path: null };
+        // Move it back (a number is added to the name if something new took its place)
       if (data.trashPath) {
         const back = await movePath(data.trashPath, data.originalPath);
         if (back !== data.originalPath) file.path = back + file.path.slice(data.originalPath.length);

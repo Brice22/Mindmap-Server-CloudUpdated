@@ -14,8 +14,16 @@ export interface LibraryFile {
   kind: 'upload' | 'web' | 'found';
   document_id: number | null;
   document_title?: string | null;
-  text_status?: 'done' | 'empty' | 'skipped' | 'failed' | null;   // text read for search (null = not yet)
+   text_status?: 'done' | 'empty' | 'skipped' | 'failed' | 'needs-ocr' | null;   // text read for search (null = not yet)
   text_pages?: number | null;
+  ocr_at?: string | null;          // text was read from a picture/scan (OCR)
+  // Videos/audio (FFmpeg): browser copy, thumbnail, 720p copy for away from home
+  media_status?: 'ok' | 'queued' | 'converting' | 'done' | 'shrinking' | 'failed' | 'needs-ffmpeg' | null;
+  media_progress?: number | null;
+  media_info?: { duration?: number | null; width?: number; height?: number; vcodec?: string; acodec?: string } | null;
+  play_path?: string | null;
+  thumb_path?: string | null;
+  small_path?: string | null;
   created_at: string;
 }
 
@@ -54,6 +62,15 @@ export const FILE_ICONS: Record<FileType, string> = {
     if (ext === 'epub') return 'chapter';
     return 'part';
   }
+  // The version that plays in the browser (converted copy if one was made)
+export const playUrl = (f: LibraryFile) => fileUrl(f.play_path || f.path);
+
+export function formatDuration(seconds?: number | null): string {
+  if (!seconds) return '';
+  const s = Math.round(seconds);
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60), r = s % 60;
+  return h ? `${h}:${String(m).padStart(2, '0')}:${String(r).padStart(2, '0')}` : `${m}:${String(r).padStart(2, '0')}`;
+}
 export function formatSize(size: number | string): string {
   const n = Number(size) || 0;
   if (n < 1024) return `${n} B`;
