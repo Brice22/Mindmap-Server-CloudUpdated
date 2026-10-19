@@ -82,6 +82,8 @@ export default function ContextMenu({
   const menuRef = useRef<HTMLDivElement>(null);
   const [submenu, setSubmenu] = useState<string | null>(null);
     const colorTimer = useRef<any>(null);
+    const scaleTimer = useRef<any>(null);
+    const [scaleDraft, setScaleDraft] = useState<number | null>(null);   // size slider while dragging
 
 
   // --------------------------------------------------------
@@ -355,13 +357,28 @@ export default function ContextMenu({
           {/* Size submenu */}
           {item.action === 'submenu_size' && submenu === 'submenu_size' && (
             <div style={{ background: '#252525', padding: '4px 0', margin: '0 8px', borderRadius: '4px' }}>
-              {['small', 'medium', 'large'].map(size => (
-                <div key={size} onClick={() => { onAction(`setSize_${size}`, node); onClose(); }}
-                  style={{
-                    padding: '6px 16px', cursor: 'pointer', fontSize: '12px',
-                    color: (meta.nodeSize || 'medium') === size ? '#0070f3' : '#ccc',
-                    fontWeight: (meta.nodeSize || 'medium') === size ? 'bold' : 'normal',
-                  }}
+                             {/* Any size: 30%–400% of medium (saved as you let go of the slider) */}
+                <div style={{ padding: '6px 16px 2px', fontSize: 12, color: '#ccc', display: 'flex', alignItems: 'center', gap: 8 }}>
+                  <input type="range" min={30} max={400} step={10}
+                    value={scaleDraft ?? (Number(meta.nodeScale) || ({ small: 70, medium: 100, large: 140 } as any)[meta.nodeSize || 'medium'] || 100)}
+                    onChange={e => {
+                      const v = Number(e.target.value);
+                      setScaleDraft(v);
+                      clearTimeout(scaleTimer.current);
+                      scaleTimer.current = setTimeout(() => onAction(`setScale_${v}`, node), 300);
+                    }}
+                    style={{ flex: 1, accentColor: '#0070f3' }} />
+                  <span style={{ width: 38, textAlign: 'right' }}>
+                    {scaleDraft ?? (Number(meta.nodeScale) || ({ small: 70, medium: 100, large: 140 } as any)[meta.nodeSize || 'medium'] || 100)}%
+                  </span>
+                </div>
+                {['small', 'medium', 'large'].map(size => (
+                  <div key={size} onClick={() => { onAction(`setSize_${size}`, node); onClose(); }}
+                    style={{
+                      padding: '6px 16px', cursor: 'pointer', fontSize: '12px',
+                      color: !meta.nodeScale && (meta.nodeSize || 'medium') === size ? '#0070f3' : '#ccc',
+                      fontWeight: !meta.nodeScale && (meta.nodeSize || 'medium') === size ? 'bold' : 'normal',
+                    }}
                   onMouseEnter={e => { e.currentTarget.style.background = '#3d3d3d'; }}
                   onMouseLeave={e => { e.currentTarget.style.background = 'transparent'; }}>
                   {size === 'small' ? '🔹' : size === 'medium' ? '🔸' : '🔶'} {size}

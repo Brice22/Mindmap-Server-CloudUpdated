@@ -17,6 +17,7 @@
     "@nestjs/websockets": "^11.1.11",
     "@types/multer": "^2.0.0",
     "express": "^4.21.0",
+    "fflate": "^0.8.3",
     "linkedom": "^0.18.13",
     "meilisearch": "^0.55.0",
     "neo4j-driver": "^6.0.1",
@@ -25,7 +26,8 @@
     "redis": "^5.11.0",
     "reflect-metadata": "^0.1.13",
     "rxjs": "^7.8.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "unpdf": "^1.9.1"
   },
   "devDependencies": {
     "@nestjs/cli": "^10.0.0",

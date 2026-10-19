@@ -56,6 +56,14 @@ function loadTransform(): d3.ZoomTransform {
 // ------------------------------------------------------------
 export const NODE_SHAPES = ['circle', 'ellipse', 'square', 'rectangle', 'pill', 'diamond', 'triangle', 'pentagon', 'hexagon', 'octagon', 'star'] as const;
 
+  // Node radius: the % slider (nodeScale, 100% = medium) wins over small/medium/large
+  const SIZE_PRESETS: Record<string, number> = { small: 18, medium: 25, large: 35 };
+  export function nodeRadius(meta: any): number {
+    const scale = Number(meta?.nodeScale);
+    if (Number.isFinite(scale) && scale > 0) return 25 * Math.min(4, Math.max(0.3, scale / 100));
+    return SIZE_PRESETS[meta?.nodeSize || 'medium'] || 25;
+  }
+
 function polygonPoints(sides: number, r: number, rotate = -Math.PI / 2) {
   return Array.from({ length: sides }, (_, i) => {
     const a = rotate + (2 * Math.PI * i) / sides;
@@ -445,20 +453,18 @@ export default function MindMapGraph({
     nodeGroups.append('circle')
       .attr('r', (d: any) => {
         const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
-        const sizes: Record<string, number> = { small: 18, medium: 25, large: 35 };
-        return (sizes[meta.nodeSize || 'medium'] || 25) * 1.4;
+           return nodeRadius(meta) * 1.4;
       })
       .attr('fill', 'transparent')
       .style('pointer-events', 'all');
     // --------------------------------------------------------
     // NODE SHAPE
     // --------------------------------------------------------
-    const SIZE_MAP: Record<string, number> = { small: 18, medium: 25, large: 35 };
 
     nodeGroups.each(function(d: any) {
       const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
       const shape = meta.shape || 'circle';
-      const r = SIZE_MAP[meta.nodeSize || 'medium'] || 25;
+      const r = nodeRadius(meta);
       const fill = meta.color || TYPE_COLORS[meta.type] || TYPE_COLORS.default;   // custom colour wins      
       const isSelected = d.id === selectedNodeId;
       const stroke = isSelected ? '#fff' : 'transparent';
@@ -521,7 +527,7 @@ export default function MindMapGraph({
     nodeGroups.each(function(d: any) {
       if (hasOrphanedParent(d, data)) {
         const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
-        const r = (SIZE_MAP[meta.nodeSize || 'medium'] || 25) + 5;
+        const r = nodeRadius(meta) + 5;
         d3.select(this)
           .append('circle')
           .attr('r', r)
@@ -540,7 +546,7 @@ export default function MindMapGraph({
    nodeGroups.append('text')
       .attr('y', (d: any) => {
         const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
-        return (SIZE_MAP[meta.nodeSize || 'medium'] || 25) + 15;
+        return nodeRadius(meta) + 15;
       })
       .attr('text-anchor', 'middle')
       .attr('fill', '#fff')

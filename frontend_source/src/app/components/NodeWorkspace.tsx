@@ -128,7 +128,7 @@ export default function NodeWorkspace({
       custom: 'Custom',
       excalidraw: 'Draw',
       map: 'Map',
-      table: 'Table', docs: 'Docs',
+      table: 'Table', docs: 'Docs', files: 'Files',
     };
 
      // Toggle: if panel exists, remove it (closing the last one is allowed)
@@ -236,6 +236,7 @@ export default function NodeWorkspace({
          <ExcalidrawWrapper
             onSave={(excalidrawData: any) => saveMeta({ excalidrawData })}
             initialData={metaRef.current.excalidrawData}
+              nodeId={node.id}
           />
         );
 

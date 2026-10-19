@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+  import { Chart, registerables } from 'chart.js';   // installed package (no CDN)
+  Chart.register(...registerables);
 
 interface HealthEntry {
   id: number;
@@ -57,18 +59,11 @@ export default function HealthView({ onAddToCalendar, apiUrl }: HealthViewProps)
   const chartRef = useRef<HTMLCanvasElement>(null);
   const chartInstance = useRef<any>(null);
 
-  // Load Chart.js
-  useEffect(() => {
-    if ((window as any).Chart) return;
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
-    document.head.appendChild(script);
-  }, []);
+ 
 
   // Render chart
   useEffect(() => {
-    if (!chartRef.current || !(window as any).Chart) return;
-    const Chart = (window as any).Chart;
+    if (!chartRef.current) return;
     if (chartInstance.current) chartInstance.current.destroy();
 
     const filtered = entries

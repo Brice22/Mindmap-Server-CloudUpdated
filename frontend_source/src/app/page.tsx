@@ -521,8 +521,11 @@ export default function Dashboard() {
           const photo = action.replace('setPhoto_', '');
           await updateNode(node.id, { metadata: { ...meta, photo, photoOnNode: true } } as any);
         } else if (action.startsWith('setSize_')) {
-          const nodeSize = action.replace('setSize_', '');
-          await updateNode(node.id, { metadata: { ...meta, nodeSize } } as any);
+                   const nodeSize = action.replace('setSize_', '');
+          await updateNode(node.id, { metadata: { ...meta, nodeSize, nodeScale: null } } as any);
+        } else if (action.startsWith('setScale_')) {
+          const nodeScale = Number(action.replace('setScale_', ''));
+          if (nodeScale > 0) await updateNode(node.id, { metadata: { ...meta, nodeScale } } as any);
         }
         break;
       }

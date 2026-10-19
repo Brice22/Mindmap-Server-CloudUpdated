@@ -14,11 +14,13 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import '@excalidraw/excalidraw/index.css';
 import '@/lib/excalidrawAssets'; // fonts from this app, not esm.sh
+  import { loadDrawingFiles, savedAddresses, storeDrawingFiles } from '@/lib/drawingFiles';
 const SAFETY_SAVE_MS = 2 * 60 * 1000;
 
 interface ExcalidrawWrapperProps {
   initialData?: any;
   onSave?: (data: any) => void | Promise<void>;
+    nodeId?: number;   // pasted pictures are filed under this node
 }
 
 type SaveState = 'saved' | 'unsaved' | 'saving' | 'error';
@@ -53,13 +55,29 @@ function pickAppState(state: any) {
   };
 }
 
-export default function ExcalidrawWrapper({ initialData, onSave }: ExcalidrawWrapperProps) {
-  const [Excalidraw, setExcalidraw] = useState<any>(null);
-  const [saveState, setSaveState] = useState<SaveState>('saved');
-  const [startData] = useState(() => toInitialData(initialData));
+  export default function ExcalidrawWrapper({ initialData, onSave, nodeId }: ExcalidrawWrapperProps) {
+    const [Excalidraw, setExcalidraw] = useState<any>(null);
+    const [saveState, setSaveState] = useState<SaveState>('saved');
+    const [startData, setStartData] = useState<any>(undefined);
+    const [ready, setReady] = useState(false);   // saved pictures loaded
 
-  const pending = useRef<any>(null);
-  const lastVersion = useRef<string>(sceneVersion(startData?.elements));
+    const pending = useRef<any>(null);
+    const lastVersion = useRef<string>(sceneVersion(initialData?.elements));
+    const uploaded = useRef(savedAddresses(initialData?.files));   // pictures already in cloud_data
+    const nodeIdRef = useRef(nodeId);
+    useEffect(() => { nodeIdRef.current = nodeId; }, [nodeId]);
+
+    // Load the drawing once, with its pictures fetched from cloud_data
+    useEffect(() => {
+      let cancelled = false;
+      (async () => {
+        const base = toInitialData(initialData);
+        if (base?.files) base.files = await loadDrawingFiles(base.files);
+        if (!cancelled) { setStartData(base); setReady(true); }
+      })();
+      return () => { cancelled = true; };
+      // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
   const onSaveRef = useRef(onSave);
   useEffect(() => { onSaveRef.current = onSave; }, [onSave]);
 
@@ -76,7 +94,7 @@ export default function ExcalidrawWrapper({ initialData, onSave }: ExcalidrawWra
     pending.current = null;
     setSaveState('saving');
     try {
-      await onSaveRef.current(data);
+      await onSaveRef.current(await storeDrawingFiles(data, nodeIdRef.current, uploaded.current));
       setSaveState(pending.current ? 'unsaved' : 'saved');
     } catch {
       if (!pending.current) pending.current = data;
@@ -98,7 +116,7 @@ export default function ExcalidrawWrapper({ initialData, onSave }: ExcalidrawWra
     setSaveState('unsaved');
   }, []);
 
-  if (!Excalidraw) {
+  if (!Excalidraw || !ready) {
     return (
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#666', background: '#1e1e2e' }}>
         Loading Excalidraw...

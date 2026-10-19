@@ -1,6 +1,8 @@
 'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
+  import { Chart, registerables } from 'chart.js';   // installed package (no CDN)
+  Chart.register(...registerables);
 
 interface Transaction {
   id: number;
@@ -113,18 +115,10 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
   const totalExpense = transactions.filter(t => t.type === 'expense').reduce((s, t) => s + t.amount, 0);
   const balance = totalIncome - totalExpense;
 
-  // Load Chart.js
-  useEffect(() => {
-    if ((window as any).Chart) return;
-    const script = document.createElement('script');
-    script.src = 'https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js';
-    document.head.appendChild(script);
-  }, []);
-
+ 
   // Render chart
   useEffect(() => {
-    if (viewMode !== 'chart' || !chartRef.current || !(window as any).Chart) return;
-    const Chart = (window as any).Chart;
+    if (viewMode !== 'chart' || !chartRef.current) return;
 
     if (chartInstance.current) chartInstance.current.destroy();
 

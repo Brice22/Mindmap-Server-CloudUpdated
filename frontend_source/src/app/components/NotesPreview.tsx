@@ -11,6 +11,7 @@
 
 import React, { useEffect, useState } from 'react';
 import '@/lib/excalidrawAssets'; // fonts from this app, not esm.sh
+import { loadDrawingFiles } from '@/lib/drawingFiles';
 
 interface NotesPreviewProps {
   data?: any;            // node metadata.excalidrawData
@@ -39,7 +40,7 @@ export default function NotesPreview({ data, onOpen, height = 300 }: NotesPrevie
             exportWithDarkMode: true,   // match the dark editor
             viewBackgroundColor: data?.appState?.viewBackgroundColor || '#ffffff',
           },
-          files: data?.files || null,
+         files: (await loadDrawingFiles(data?.files)) || null,   // pictures are stored in cloud_data
           exportPadding: 12,
         });
         // Scale to the box instead of the drawing's real pixel size
