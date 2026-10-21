@@ -86,6 +86,11 @@ export default function RegionsPanel() {
       )}
 
       {error && <div style={{ color: '#ef4444', fontSize: 13, marginBottom: 12 }}>{error}</div>}
+      {regions && regions.length > 0 && regions.every(r => r.status === 'unreachable') && (
+        <div style={{ color: '#f59e0b', fontSize: 13, marginBottom: 12, maxWidth: 760 }}>
+          On hold — regions need a paid VPN provider. The containers are ready in configs/gluetun/vpn-services.yml; setup is in configs/gluetun/README.md.
+        </div>
+      )}
       {!regions && !error && <div style={{ color: '#666' }}>Checking regions…</div>}
 
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(320px, 1fr))', gap: 12 }}>

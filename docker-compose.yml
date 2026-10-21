@@ -261,19 +261,37 @@ services:
       - KEYDB_URL=redis://keydb:6379
       - SURREALDB_URL=http://surrealdb:8000/rpc
       - KEYCLOAK_URL=https://10.10.0.1/auth
+      - HSERVER_LAN_IP=${HSERVER_LAN_IP:-192.168.4.194}
+      - PIHOLE_PASSWORD=${PIHOLE_PASSWORD:-${DB_PASSWORD}}
+      - REMOTE_HOSTNAME=${WIREGUARD_SERVER_URL:-}
+      - SETUP_PIN=${SETUP_PIN:-}
+      - QBIT_URL=http://qbittorrent:8080
+      - QBIT_PASS=${QBIT_PASS:-}
+      - TORRENT_VPN_HOST=
     networks:
-      - dev_net
-      - storage_net
-      - auth_net
-      - siem_net
+      dev_net:
+      storage_net:
+      auth_net:
+      siem_net:
+      net_mgmt:                       # to reach Pi-hole (10.10.0.53)
+        ipv4_address: 10.10.0.10      # fixed, so it never takes Pi-hole's (.53) or WireGuard's (.2) address
     ports:
       - "3000:3000" # Map to host so Nginx can see the API
     volumes:
       - /srv/hserverdir-data/backend_source:/app:Z
       - /srv/hserverdir-data/cloud_data:/app/uploads:Z
       - /srv/hserverdir-data/savepoints:/app/savepoints:Z
+      
       - /srv/hserverdir-data/wireguard:/app/vpn-configs:ro
-
+      - /srv/hserverdir-data/wireguard-status:/app/wg-status:ro,z
+      - /srv/hserverdir-data:/data:ro                       # backups read everything from here (scripts/backup-excludes.txt)
+      - /srv/hserverdir-data/vaultwarden:/vaultwarden       # read-write only so its database can be copied safely
+      - /srv/hserverdir-data/backups:/backup-work:z         # backup status, database dumps, restic cache
+      - /srv/hserverdir-data/restore:/restore               # restores by hand land here
+      - ./.env:/env/.env:ro                                 # your settings, included in the backup
+      - ${BACKUP_DRIVE:-/srv/hserver-backup}:/drive         # backup folder on the OTHER disk (the NVMe)
+      - /srv/hserverdir-data/backups/status:/app/backup-status:z
+      - /srv/hserverdir-data/wireguard-status:/app/wg-status:ro,z
   # --- METRICS (Prometheus + Grafana) ---
   prometheus:
     image: prom/prometheus:latest
@@ -359,7 +377,7 @@ services:
 
   pihole:
     container_name: pihole
-    image: pihole/pihole:latest
+    image: pihole/pihole:2027.07.2
     # Rootless requires specific user mapping for internal processes
     logging:
       driver: json-file
@@ -368,10 +386,9 @@ services:
         max-file: "3"
     environment:
       TZ: 'America/Chicago'
-      WEBPASSWORD: ${DB_PASSWORD}
-      # Prevents dnsmasq from failing due to lack of root privileges inside
-      DNSMASQ_USER: 'root'
-      FTLCONF_LOCAL_IPV4: ${DB_HOST}
+      FTLCONF_webserver_api_password: ${PIHOLE_PASSWORD:-${DB_PASSWORD}}   # web page + the app's Ad blocking tab
+      FTLCONF_dns_listeningMode: 'all'                 # answer your LAN devices and WireGuard (other subnets)
+      FTLCONF_dns_upstreams: '9.9.9.9;149.112.112.112' # Quad9 (also blocks known malware domains)
     volumes:
       - '/srv/hserverdir-data/pihole/etc-pihole:/etc/pihole:Z'
       - '/srv/hserverdir-data/pihole/etc-dnsmasq.d:/etc/dnsmasq.d:Z'
@@ -379,10 +396,11 @@ services:
       net_mgmt:
         ipv4_address: 10.10.0.53
     ports:
-      # Mapping to high ports to satisfy Rootless restrictions
-      - "5353:53/tcp"
-      - "5353:53/udp"
-      - "8053:80/tcp"
+      # DNS for the devices you point at HServer. Bound to the LAN address only, so it doesn't
+      # clash with Ubuntu's own resolver on 127.0.0.53. Never forward port 53 on the Eero.
+      - "${HSERVER_LAN_IP:-192.168.4.194}:53:53/tcp"
+      - "${HSERVER_LAN_IP:-192.168.4.194}:53:53/udp"
+      - "8053:80/tcp"     # Pi-hole's own web page: http://192.168.4.194:8053/admin
     restart: unless-stopped
 
   vscode:
@@ -434,12 +452,12 @@ services:
       - PUID=1000
       - PGID=1000
       - TZ=America/Chicago
-      - SERVERURL=${WIREGUARD_SERVER_URL}   # your DuckDNS domain or public IP
+      - SERVERURL=${WIREGUARD_SERVER_URL:-auto}       # your DuckDNS name, e.g. brice.duckdns.org
       - SERVERPORT=51820
-      - PEERS=phone,laptop,tablet            # generates configs for each
-      - PEERDNS=10.10.0.53                   # points to your Pi-hole!
+      - PEERS=${WG_PEERS:-phone,laptop,tablet}        # add a device: add its name to WG_PEERS in .env, then `docker compose up -d wireguard`
+      - PEERDNS=10.10.0.53                            # points to your Pi-hole!
       - INTERNAL_SUBNET=10.13.13.0
-      - ALLOWEDIPS=0.0.0.0/0                 # route ALL traffic through VPN
+      - ALLOWEDIPS=10.10.0.0/24,10.13.13.0/24         # split tunnel: only HServer + Pi-hole go through home                # route ALL traffic through VPN
     logging:
       driver: json-file
       options:
@@ -465,8 +483,86 @@ services:
       - PUID=1000 # Matches your host user ID
       - PGID=1000 # Matches your host group ID
       - TZ=America/Chicago
-      - SUBDOMAINS=${DB_USER} # Your DuckDNS subdomain
+      - SUBDOMAINS=${DUCKDNS_SUBDOMAIN:-${DB_USER}} # just the name part: "brice" for brice.duckdns.org
       - TOKEN=${DUCK_TOKEN} # Replace with your DuckDNS token
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Writes `wg show` every 30 s so the app (Network → Remote access) can show which devices are connected
+  wireguard_status:
+    image: lscr.io/linuxserver/wireguard:latest
+    container_name: wireguard_status
+    network_mode: "service:wireguard"
+    cap_add:
+      - NET_ADMIN
+    entrypoint: ["/bin/sh", "-c", "while true; do wg show all dump > /status/wg-status.tmp 2>/dev/null && mv /status/wg-status.tmp /status/wg-status.txt; sleep 30; done"]
+    volumes:
+      - /srv/hserverdir-data/wireguard-status:/status:z
+    depends_on:
+      - wireguard
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "1m"
+        max-file: "2"
+
+  # Torrents (no VPN: peers see your home IP — a VPN can be put in front later, configs/gluetun/README.md)
+  qbittorrent:
+    image: lscr.io/linuxserver/qbittorrent:5.1.2
+    container_name: qbittorrent
+    environment:
+      - PUID=1000
+      - PGID=1000
+      - TZ=America/Chicago
+      - WEBUI_PORT=8080
+      - TORRENTING_PORT=6881
+    volumes:
+      - /srv/hserverdir-data/qbittorrent:/config
+      - /srv/hserverdir-data/cloud_data/torrents:/downloads      # finished files show up in 📁 Files
+    ports:
+      - "8090:8080"         # qBittorrent's own web page (LAN): http://192.168.4.194:8090
+      - "6881:6881/tcp"     # peers
+      - "6881:6881/udp"
+    networks:
+      - dev_net
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  # Nightly encrypted backup (restic) to a folder on the SSD — configs/backup/README.md
+  backup:
+    build: ./configs/backup
+    container_name: backup
+    environment:
+      - TZ=America/Chicago
+      - PGHOST=postgres
+      - PGUSER=${DB_USER}
+      - PGPASSWORD=${DB_PASSWORD}
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
+      - BACKUP_TIME=${BACKUP_TIME:-03:30}
+      - REPO_DRIVE=/drive/hserver-restic
+      - INCLUDE_TORRENTS=${BACKUP_INCLUDE_TORRENTS:-no}
+    volumes:
+      - /srv/hserverdir-data:/data:ro                       # everything (see configs/backup/excludes.txt)
+      - /srv/hserverdir-data/vaultwarden:/vaultwarden       # read-write only so its database can be copied safely
+      - ./.env:/env/.env:ro                                 # your passwords/settings
+      - /srv/hserverdir-data/backups/status:/status:z       # what the app shows (and "Back up now")
+      - /srv/hserverdir-data/backups/dumps:/dumps
+      - /srv/hserverdir-data/backups/cache:/root/.cache/restic
+      - /srv/hserverdir-data/restore:/restore               # restores by hand land here
+      - ${BACKUP_DRIVE:-/mnt/hserver-backup}:/drive         # backup folder on a DIFFERENT disk than /srv/hserverdir-data
+    security_opt:
+      - label=disable                                       # SELinux hosts: let it read every folder (no effect elsewhere)
+    networks:
+      - storage_net
     restart: unless-stopped
     logging:
       driver: json-file

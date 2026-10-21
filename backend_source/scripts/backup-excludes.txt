@@ -1,0 +1,17 @@
+# Not backed up (paths as the backend container sees them: /data = /srv/hserverdir-data)
+
+# Postgres is backed up as a dump (backups/dumps/postgres.sql.gz) — copying its live files gives a broken copy
+/data/postgres_data
+# The backup's own work folders (the dumps inside are backed up separately)
+/data/backups
+/data/restore
+# Browser/720p copies and thumbnails — remade automatically from the originals
+/data/cloud_data/derived
+# Neo4j logs
+/data/neo4j_graph/logs
+# Rebuildable caches
+node_modules
+.next
+.cache
+/data/jenkins/caches
+/data/jenkins/workspace

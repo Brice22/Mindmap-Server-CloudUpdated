@@ -27,6 +27,8 @@ interface Status {
   configured: boolean; reachable: boolean; version: string | null; error: string | null;
   vpn: { ip: string; country: string; city: string } | null;
   forwardedPort: number | null;
+    usesVpn?: boolean;
+
 }
 
 const btn: React.CSSProperties = { background: '#333', color: '#ccc', border: 'none', borderRadius: 4, padding: '5px 10px', fontSize: 12, cursor: 'pointer' };
@@ -109,7 +111,8 @@ export default function TorrentsPanel({ nodes = [] }: { nodes?: Node[] }) {
       {/* Connection */}
       <div style={{ fontSize: 13, marginBottom: 12 }}>
         {!status ? <span style={{ color: '#666' }}>Checking…</span>
-          : !status.configured ? <span style={{ color: '#f59e0b' }}>Torrents aren&apos;t set up yet — start the torrent VPN and qBittorrent on HServer and set QBIT_PASS (see configs/gluetun/README.md).</span>
+          : !status.configured ? <span style={{ color: '#f59e0b' }}>Torrents aren&apos;t set up yet — start qBittorrent on HServer and set QBIT_PASS in .env (see configs/remote-access/README.md).</span>
+          : status.reachable && !status.usesVpn ? <span style={{ color: '#f59e0b' }}>⚠ No VPN — other peers see your home IP. Fine for Linux ISOs, open courses, public-domain media.</span>
           : !status.reachable ? <span style={{ color: '#f87171' }}>⚠ qBittorrent isn&apos;t reachable ({status.error}). If the torrent VPN is down, nothing downloads — your home IP is never used.</span>
           : status.vpn ? <span style={{ color: '#22c55e' }}>🔒 Torrents go through {status.vpn.city ? `${status.vpn.city}, ` : ''}{status.vpn.country} · {status.vpn.ip}{status.forwardedPort ? ` · port ${status.forwardedPort} forwarded` : ''}</span>
           : <span style={{ color: '#f59e0b' }}>qBittorrent {status.version} is up, but the VPN address couldn&apos;t be checked.</span>}

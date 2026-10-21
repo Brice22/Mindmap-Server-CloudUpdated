@@ -94,7 +94,7 @@ export default function BackupsPanel() {
     return (
       <div style={{ ...card, fontSize: 13, lineHeight: 1.6, maxWidth: 760 }}>
         <div style={{ color: '#f59e0b', marginBottom: 6 }}>Backups aren&apos;t set up yet.</div>
-        On HServer: plug in the backup drive, fill in <span style={code}>/srv/hserverdir-data/backup/backup.env</span> and run
+         On HServer: set BACKUP_DRIVE and RESTIC_PASSWORD in <span style={code}>.env</span> and run
         {' '}<span style={code}>docker compose up -d --build backup</span> — the steps are in <span style={code}>configs/backup/README.md</span>.
       </div>
     );

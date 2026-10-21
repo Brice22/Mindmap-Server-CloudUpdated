@@ -119,7 +119,7 @@ export default function PiholePanel() {
     return (
       <div style={{ color: '#ccc', fontSize: 13, lineHeight: 1.6, maxWidth: 760 }}>
         <div style={{ color: '#f87171', marginBottom: 8 }}>⚠ {status.error || 'Pi-hole is not reachable'}</div>
-        <div style={{ color: '#999' }}>Check on HServer: <code style={mono}>docker compose ps pihole</code>. The backend needs <code style={mono}>PIHOLE_PASSWORD</code> (or your DB_PASSWORD, which the Pi-hole web page uses) and to be on the Pi-hole network — both are set in docker-compose.override.yml. See configs/remote-access/README.md.</div>
+        <div style={{ color: '#999' }}>Check on HServer: <code style={mono}>docker compose ps pihole</code>. The backend needs <code style={mono}>PIHOLE_PASSWORD</code> (or your DB_PASSWORD, which the Pi-hole web page uses) and to be on the Pi-hole network — both are set in docker-compose.yml. See configs/remote-access/README.md.</div>
       </div>
     );
   }

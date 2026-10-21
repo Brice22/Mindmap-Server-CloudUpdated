@@ -26,7 +26,7 @@ const QBIT_URL = (process.env.QBIT_URL || 'http://torrent_vpn:8080').replace(/\/
 const QBIT_USER = process.env.QBIT_USER || 'admin';
 const QBIT_PASS = process.env.QBIT_PASS || '';
 const QBIT_DIR = (process.env.QBIT_DOWNLOAD_DIR || '/downloads').replace(/\/$/, '');
-const VPN_HOST = process.env.TORRENT_VPN_HOST || 'torrent_vpn';
+const VPN_HOST = process.env.TORRENT_VPN_HOST ?? 'torrent_vpn';   // empty = no VPN in front of qBittorrent
 const LIBRARY_DIR = 'torrents';        // cloud_data/torrents = qBittorrent's /downloads
 const DONE_STATES = new Set(['uploading', 'stalledUP', 'pausedUP', 'stoppedUP', 'queuedUP', 'forcedUP', 'checkingUP']);
 
@@ -93,13 +93,17 @@ export class TorrentsService {
     let version: string | null = null;
     let error: string | null = null;
     try { version = String(await this.api('/api/v2/app/version')); } catch (e: any) { error = e?.response?.message || e?.message || 'not reachable'; }
+   
     let vpn: any = null;
-    try { vpn = await gluetun(VPN_HOST, '/v1/publicip/ip'); } catch {}
     let port: any = null;
-    try { port = (await gluetun(VPN_HOST, '/v1/portforward'))?.port ?? null; } catch {
-      try { port = (await gluetun(VPN_HOST, '/v1/openvpn/portforwarded'))?.port ?? null; } catch {}
+    if (VPN_HOST) {
+      try { vpn = await gluetun(VPN_HOST, '/v1/publicip/ip'); } catch {}
+      try { port = (await gluetun(VPN_HOST, '/v1/portforward'))?.port ?? null; } catch {
+        try { port = (await gluetun(VPN_HOST, '/v1/openvpn/portforwarded'))?.port ?? null; } catch {}
+      }
     }
     return {
+      usesVpn: !!VPN_HOST,
       configured: !!QBIT_PASS,
       reachable: !!version,
       version, error,
