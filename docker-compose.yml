@@ -268,6 +268,12 @@ services:
       - QBIT_URL=http://qbittorrent:8080
       - QBIT_PASS=${QBIT_PASS:-}
       - TORRENT_VPN_HOST=
+      - TZ=America/Chicago
+      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
+      - RESTIC_REPOSITORY=/drive/hserver-restic
+      - BACKUP_TIME=${BACKUP_TIME:-03:30}
+      - INCLUDE_TORRENTS=${BACKUP_INCLUDE_TORRENTS:-no}
+      - BACKUP_STATUS_DIR=/backup-work/status
     networks:
       dev_net:
       storage_net:
@@ -281,7 +287,6 @@ services:
       - /srv/hserverdir-data/backend_source:/app:Z
       - /srv/hserverdir-data/cloud_data:/app/uploads:Z
       - /srv/hserverdir-data/savepoints:/app/savepoints:Z
-      
       - /srv/hserverdir-data/wireguard:/app/vpn-configs:ro
       - /srv/hserverdir-data/wireguard-status:/app/wg-status:ro,z
       - /srv/hserverdir-data:/data:ro                       # backups read everything from here (scripts/backup-excludes.txt)
@@ -290,8 +295,7 @@ services:
       - /srv/hserverdir-data/restore:/restore               # restores by hand land here
       - ./.env:/env/.env:ro                                 # your settings, included in the backup
       - ${BACKUP_DRIVE:-/srv/hserver-backup}:/drive         # backup folder on the OTHER disk (the NVMe)
-      - /srv/hserverdir-data/backups/status:/app/backup-status:z
-      - /srv/hserverdir-data/wireguard-status:/app/wg-status:ro,z
+     
   # --- METRICS (Prometheus + Grafana) ---
   prometheus:
     image: prom/prometheus:latest
@@ -377,7 +381,7 @@ services:
 
   pihole:
     container_name: pihole
-    image: pihole/pihole:2027.07.2
+    image: pihole/pihole:2026.07.2
     # Rootless requires specific user mapping for internal processes
     logging:
       driver: json-file
