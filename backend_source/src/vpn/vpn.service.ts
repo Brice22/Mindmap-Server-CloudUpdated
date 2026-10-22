@@ -27,7 +27,8 @@ const HOSTNAME = (process.env.REMOTE_HOSTNAME || '').trim().replace(/^https?:\/\
 const SETUP_PIN = process.env.SETUP_PIN || '';
 const ONLINE_SECONDS = 180;   // WireGuard re-handshakes every 2 minutes while traffic flows
 
-interface PeerStatus { endpoint: string; handshake: number; rx: number; tx: number }
+
+interface PeerStatus { endpoint: string; allowedIps: string; handshake: number; rx: number; tx: number }
 
 @Injectable()
 export class VpnService {
@@ -36,10 +37,12 @@ export class VpnService {
   // ------------------------------------------------------------
   async status() {
     const [publicIp, hostnameIp] = await Promise.all([this.publicIp(), this.resolveHostname()]);
-    const { peers: live, updatedAt } = this.readStatus();
-    const peers = this.peerNames().map(name => {
+       const { peers: live, updatedAt } = this.readStatus();
+    const known = new Set<string>();
+    const peers: any[] = this.peerNames().map(name => {
       const conf = this.readPeerConf(name);
       const key = this.read(path.join(CONFIG_DIR, `peer_${name}`, `publickey-peer_${name}`))?.trim() || '';
+            known.add(key);
       const s = live.get(key);
       const handshake = s?.handshake || 0;
       return {
@@ -51,8 +54,21 @@ export class VpnService {
         tx: s?.tx || 0,
         hasQr: fs.existsSync(path.join(CONFIG_DIR, `peer_${name}`, `peer_${name}.png`)),
       };
-    });
-    const first = peers.length ? this.readPeerConf(peers[0].name) : null;
+       });
+    // Devices added to WireGuard by hand (not with scripts/wg-device.sh): show them by address
+    for (const [key, s] of live) {
+      if (known.has(key)) continue;
+      const address = s.allowedIps.split(',')[0].replace(/\/32$/, '');
+      peers.push({
+        name: `device ${address}`,
+        address,
+        online: !!s.handshake && Date.now() / 1000 - s.handshake < ONLINE_SECONDS,
+        lastHandshake: s.handshake ? new Date(s.handshake * 1000).toISOString() : null,
+        rx: s.rx, tx: s.tx, hasQr: false, manual: true,
+      });
+    }
+    const named = peers.find(p => !p.manual);
+    const first = named ? this.readPeerConf(named.name) : null;
     return {
       hostname: HOSTNAME || null,
       port: 51820,
@@ -116,8 +132,8 @@ export class VpnService {
       for (const line of fs.readFileSync(STATUS_FILE, 'utf8').split('\n')) {
         const f = line.trim().split('\t');
         if (f.length < 9) continue;
-        peers.set(f[1], { endpoint: f[3], handshake: Number(f[5]) || 0, rx: Number(f[6]) || 0, tx: Number(f[7]) || 0 });
-      }
+        peers.set(f[1], { endpoint: f[3], allowedIps: f[4], handshake: Number(f[5]) || 0, rx: Number(f[6]) || 0, tx: Number(f[7]) || 0 });
+    }
     } catch {}
     return { peers, updatedAt };
   }

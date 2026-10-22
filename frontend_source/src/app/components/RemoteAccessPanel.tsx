@@ -15,7 +15,7 @@ import { formatSize } from '@/lib/files';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
 
-interface Peer { name: string; address: string | null; online: boolean; lastHandshake: string | null; rx: number; tx: number; hasQr: boolean }
+interface Peer { name: string; address: string | null; online: boolean; lastHandshake: string | null; rx: number; tx: number; hasQr: boolean; manual?: boolean }
 interface Status {
   hostname: string | null; port: number; publicIp: string | null; hostnameIp: string | null; dnsOk: boolean;
   serverRunning: boolean; statusUpdatedAt: string | null;
@@ -105,7 +105,7 @@ export default function RemoteAccessPanel() {
           </span>
           <span style={{ color: '#888' }}>WireGuard</span>
           <span>
-            {s.serverRunning ? <span style={{ color: '#22c55e' }}>● running</span> : <span style={{ color: '#f87171' }}>● no status (is the wireguard_status container running?)</span>}
+            {s.serverRunning ? <span style={{ color: '#22c55e' }}>● running</span> : <span style={{ color: '#f87171' }}>● no status — on HServer run: sudo bash backend_source/scripts/wg-device.sh status</span>}
             <span style={{ color: '#888' }}> · UDP {s.port}{s.tunnel.allowedIps ? ` · goes home: ${s.tunnel.allowedIps}` : ''}</span>
           </span>
         </div>
@@ -115,7 +115,7 @@ export default function RemoteAccessPanel() {
             <li><b>Eero app</b> → Settings → Network settings → Reservations &amp; port forwarding → HServer → reserve its IP (192.168.4.194) → Add a port forward: <span style={code}>51820</span> UDP.</li>
             <li><b>Check you have a real public IP:</b> Eero app → Settings → Network settings → it shows the WAN IP. If it isn&apos;t the same as &quot;Home IP now&quot; above (or starts with 100.64–100.127), your internet provider uses CGNAT and port forwarding can&apos;t work — ask them for a public IP.</li>
             <li><b>DuckDNS:</b> duckdns.org → your subdomain + token in <span style={code}>.env</span> (DUCKDNS_SUBDOMAIN, DUCK_TOKEN, WIREGUARD_SERVER_URL).</li>
-            <li><b>Each device:</b> install the WireGuard app → add tunnel → scan the QR below (phone) or import the .conf (laptop). Re-scan after this update — the tunnel settings changed.</li>
+            <li><b>Each device:</b> on HServer <span style={code}>sudo bash backend_source/scripts/wg-device.sh add phone</span> → WireGuard app → + → scan the QR (phone) or import the .conf (laptop).</li>
             <li><b>Test:</b> turn Wi-Fi off on the phone, turn WireGuard on, open <span style={code}>https://10.10.0.1</span>.</li>
           </ol>
         )}
@@ -153,13 +153,15 @@ export default function RemoteAccessPanel() {
                 {(p.rx || p.tx) ? <span style={{ color: '#666' }}> · ↓ {formatSize(p.tx)} ↑ {formatSize(p.rx)}</span> : null}
               </div>
             </div>
-            {s.canShowSetup
+         {p.manual
+              ? <span style={{ fontSize: 11, color: '#666' }}>added by hand</span>
+              : s.canShowSetup
               ? <button onClick={() => openSetup(p)} disabled={!pin} title={pin ? '' : 'Type the setup PIN first'} style={{ ...btn, opacity: pin ? 1 : 0.5 }}>Set up device</button>
-              : <span style={{ fontSize: 11, color: '#666' }} title="Set SETUP_PIN in .env to show it here">on HServer: <span style={code}>docker exec -it wireguard /app/show-peer {p.name}</span></span>}
-          </div>
+              : <span style={{ fontSize: 11, color: '#666' }} title="Set SETUP_PIN in .env to show it here">on HServer: <span style={code}>sudo bash backend_source/scripts/wg-device.sh qr {p.name}</span></span>}
+              </div>
         ))}
         <div style={{ fontSize: 12, color: '#888', marginTop: 10 }}>
-          Add a device: add its name to <span style={code}>WG_PEERS</span> in .env (e.g. phone,laptop,tablet,worklaptop), then on HServer <span style={code}>docker compose up -d wireguard</span>.
+          Add a device: on HServer <span style={code}>sudo bash backend_source/scripts/wg-device.sh add worklaptop</span> · remove: <span style={code}>… remove worklaptop</span>.
         </div>
       </div>
 

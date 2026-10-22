@@ -287,7 +287,7 @@ services:
       - /srv/hserverdir-data/backend_source:/app:Z
       - /srv/hserverdir-data/cloud_data:/app/uploads:Z
       - /srv/hserverdir-data/savepoints:/app/savepoints:Z
-      - /srv/hserverdir-data/wireguard:/app/vpn-configs:ro
+      - /srv/hserverdir-data/wireguard-devices:/app/vpn-configs:ro    # devices made by scripts/wg-device.sh
       - /srv/hserverdir-data/wireguard-status:/app/wg-status:ro,z
       - /srv/hserverdir-data:/data:ro                       # backups read everything from here (scripts/backup-excludes.txt)
       - /srv/hserverdir-data/vaultwarden:/vaultwarden       # read-write only so its database can be copied safely
@@ -449,6 +449,7 @@ services:
   wireguard:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wireguard
+    profiles: ["unused"]
     cap_add:
       - NET_ADMIN
       - SYS_MODULE
@@ -500,6 +501,7 @@ services:
   wireguard_status:
     image: lscr.io/linuxserver/wireguard:latest
     container_name: wireguard_status
+    profiles: ["unused"]
     network_mode: "service:wireguard"
     cap_add:
       - NET_ADMIN
