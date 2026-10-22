@@ -373,7 +373,8 @@ services:
     volumes:
       - /srv/hserverdir-data/frontend_source:/app:Z
     environment:
-      - NEXT_PUBLIC_API_URL=https://10.10.0.1/api
+      - NEXT_PUBLIC_API_URL=http://${HSERVER_LAN_IP:-192.168.4.194}:3000   # browser → backend directly (until the nginx pass)
+      - API_INTERNAL_URL=http://backend_nest:3000                              # Next.js → backend inside Docker (files, photos)
     networks:
       - dev_net
     ports:
