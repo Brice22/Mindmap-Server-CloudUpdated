@@ -1,4 +1,9 @@
-FROM oven/bun:1.1
+# Bun 1.1's own image is Debian 11, whose update servers were retired (apt gets 404s).
+# Same bun program, on Debian 12 (bookworm), which still gets updates.
+FROM oven/bun:1.1 AS bun
+FROM debian:bookworm-slim
+COPY --from=bun /usr/local/bin/bun /usr/local/bin/bun
+RUN ln -s /usr/local/bin/bun /usr/local/bin/bunx
 # Programs the backend runs: ffmpeg (videos/audio), tesseract (OCR), pdftoppm (scanned PDF pages)
 # Programs the backend runs:
 #   ffmpeg (videos/audio), tesseract (OCR), pdftoppm (scanned PDF pages)

@@ -540,39 +540,7 @@ services:
       options:
         max-size: "10m"
         max-file: "3"
-
-  # Nightly encrypted backup (restic) to a folder on the SSD — configs/backup/README.md
-  backup:
-    build: ./configs/backup
-    container_name: backup
-    environment:
-      - TZ=America/Chicago
-      - PGHOST=postgres
-      - PGUSER=${DB_USER}
-      - PGPASSWORD=${DB_PASSWORD}
-      - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
-      - BACKUP_TIME=${BACKUP_TIME:-03:30}
-      - REPO_DRIVE=/drive/hserver-restic
-      - INCLUDE_TORRENTS=${BACKUP_INCLUDE_TORRENTS:-no}
-    volumes:
-      - /srv/hserverdir-data:/data:ro                       # everything (see configs/backup/excludes.txt)
-      - /srv/hserverdir-data/vaultwarden:/vaultwarden       # read-write only so its database can be copied safely
-      - ./.env:/env/.env:ro                                 # your passwords/settings
-      - /srv/hserverdir-data/backups/status:/status:z       # what the app shows (and "Back up now")
-      - /srv/hserverdir-data/backups/dumps:/dumps
-      - /srv/hserverdir-data/backups/cache:/root/.cache/restic
-      - /srv/hserverdir-data/restore:/restore               # restores by hand land here
-      - ${BACKUP_DRIVE:-/mnt/hserver-backup}:/drive         # backup folder on a DIFFERENT disk than /srv/hserverdir-data
-    security_opt:
-      - label=disable                                       # SELinux hosts: let it read every folder (no effect elsewhere)
-    networks:
-      - storage_net
-    restart: unless-stopped
-    logging:
-      driver: json-file
-      options:
-        max-size: "10m"
-        max-file: "3"
+ 
 
   postgres:
     image: postgres:16-alpine
