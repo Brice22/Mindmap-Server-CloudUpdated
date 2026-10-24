@@ -1,0 +1,46 @@
+{
+  "realm": "hserver",
+  "displayName": "HServer",
+  "enabled": true,
+  "sslRequired": "external",
+  "registrationAllowed": false,
+  "resetPasswordAllowed": false,
+  "loginWithEmailAllowed": true,
+  "rememberMe": true,
+  "bruteForceProtected": true,
+  "failureFactor": 10,
+  "ssoSessionIdleTimeout": 86400,
+  "ssoSessionMaxLifespan": 604800,
+  "ssoSessionIdleTimeoutRememberMe": 2592000,
+  "ssoSessionMaxLifespanRememberMe": 7776000,
+  "roles": {
+    "realm": [
+      { "name": "owner", "description": "Full access to everything in HServer" },
+      { "name": "family", "description": "Limited access: can look, cannot change anything or open the Network pages" }
+    ]
+  },
+  "clients": [
+    {
+      "clientId": "hserver-app",
+      "name": "HServer Mindmap",
+      "enabled": true,
+      "protocol": "openid-connect",
+      "publicClient": false,
+      "clientAuthenticatorType": "client-secret",
+      "secret": "${HSERVER_CLIENT_SECRET}",
+      "standardFlowEnabled": true,
+      "implicitFlowEnabled": false,
+      "directAccessGrantsEnabled": false,
+      "serviceAccountsEnabled": false,
+      "redirectUris": [
+        "http://192.168.4.194:3000/api/auth/callback",
+        "http://localhost:3000/api/auth/callback"
+      ],
+      "webOrigins": ["+"],
+      "attributes": {
+        "pkce.code.challenge.method": "S256",
+        "post.logout.redirect.uris": "http://192.168.4.194:5173/*##http://localhost:3001/*"
+      }
+    }
+  ]
+}

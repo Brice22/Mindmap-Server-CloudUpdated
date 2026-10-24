@@ -34,7 +34,7 @@ command -v wg >/dev/null || die "wg not found (sudo apt install wireguard-tools)
 
 endpoint() {
   local e=${ENDPOINT:-}
-  [ -n "$e" ] || { [ -f "$ENV_FILE" ] && e=$(grep -m1 '^WIREGUARD_SERVER_URL=' "$ENV_FILE" | cut -d= -f2- | tr -d '"'"'"' \r'); } || true
+  [ -n "$e" ] || { [ -f "$ENV_FILE" ] && e=$(grep '^WIREGUARD_SERVER_URL=' "$ENV_FILE" | sed 's/[[:space:]]#.*//' | cut -d= -f2- | tr -d '"'"'"' \r' | grep -v '^$' | tail -1); } || true
   [ -n "$e" ] || die "set WIREGUARD_SERVER_URL in $ENV_FILE (your DuckDNS name) or run with ENDPOINT=yourname.duckdns.org"
   echo "${e%%:*}:$(wg show "$WG_IF" listen-port)"
 }
@@ -94,6 +94,7 @@ cmd_add() {
 PrivateKey = $key
 Address = $ip/32
 DNS = $LAN_DNS
+MTU = 1280
 
 [Peer]
 PublicKey = $server_pub
