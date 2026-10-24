@@ -2,7 +2,7 @@
   "realm": "hserver",
   "displayName": "HServer",
   "enabled": true,
-  "sslRequired": "external",
+  "sslRequired": "none",
   "registrationAllowed": false,
   "resetPasswordAllowed": false,
   "loginWithEmailAllowed": true,
