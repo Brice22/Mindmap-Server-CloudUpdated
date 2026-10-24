@@ -50,10 +50,11 @@ function uploadFile(file: File, nodeId: number | undefined, onProgress: (pct: nu
     xhr.upload.onprogress = e => { if (e.lengthComputable) onProgress(Math.round((e.loaded / e.total) * 100)); };
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) resolve(JSON.parse(xhr.responseText));
-      else reject(new Error(xhr.status === 413 ? 'Too big for the server (nginx limit)' : `Upload failed (${xhr.status})`));
+      else reject(new Error(xhr.status === 413 ? 'Too big for the server (nginx limit)' : xhr.status === 401 ? 'Log in again, then retry' : `Upload failed (${xhr.status})`));
     };
     xhr.onerror = () => reject(new Error('Upload failed (no connection)'));
     xhr.open('POST', `${API_URL}/api/mindmap/files`);
+    xhr.withCredentials = true;                       // send the login cookie
     xhr.send(form);
   });
 }
@@ -126,6 +127,11 @@ function SendToHServer() {
   const boxRef = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [clipKey, setClipKey] = useState('');
+  // The button carries a key instead of your login (other sites can't send the login cookie)
+  useEffect(() => {
+    fetch(`${API_URL}/api/auth/clip-key`).then(r => r.ok ? r.json() : null).then(d => setClipKey(d?.key || '')).catch(() => {});
+  }, []);
   // Opens a tab first (browsers only allow that right after the click), asks for a node,
   // then posts the page as you see it — so pages you're logged in to work too.
   const code = useMemo(() => {
@@ -136,10 +142,10 @@ function SendToHServer() {
       `var f=document.createElement('form');f.method='POST';f.action=${JSON.stringify(target)};f.target='hserver_clip';` +
       `f.acceptCharset='utf-8';f.style.display='none';` +
       `var a=function(k,v){var t=document.createElement('textarea');t.name=k;t.value=v;f.appendChild(t);};` +
-      `a('url',location.href);a('title',document.title);a('node',n);a('html',document.documentElement.outerHTML);` +
+      `a('key',${JSON.stringify(clipKey)});a('url',location.href);a('title',document.title);a('node',n);a('html',document.documentElement.outerHTML);` +
       `document.body.appendChild(f);f.submit();f.remove();})()`;
     return 'javascript:' + encodeURIComponent(body);
-  }, []);
+  }, [clipKey]);
   // React blocks javascript: links in JSX, so the bookmark's address is set directly
   useEffect(() => { linkRef.current?.setAttribute('href', code); }, [code, open]);
   // Close when clicking anywhere else

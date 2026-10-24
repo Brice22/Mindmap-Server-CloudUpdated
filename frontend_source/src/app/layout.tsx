@@ -1,5 +1,6 @@
 import './globals.css';
 import type { Metadata } from 'next';
+import AuthGate from './components/AuthGate';
 
 export const metadata: Metadata = {
   title: 'HServer | Family Mindmap',
@@ -23,7 +24,7 @@ export default function RootLayout({
 </head>
       <body className="bg-slate-900 text-slate-100 min-h-screen">
         {/* This is where your page.tsx content will be injected */}
-        {children}
+        <AuthGate>{children}</AuthGate>
         <script
   dangerouslySetInnerHTML={{
     __html: `

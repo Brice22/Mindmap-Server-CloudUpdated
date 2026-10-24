@@ -260,7 +260,10 @@ services:
       - MEILI_MASTER_KEY=${MEILI_MASTER_KEY}
       - KEYDB_URL=redis://keydb:6379
       - SURREALDB_URL=http://surrealdb:8000/rpc
-      - KEYCLOAK_URL=https://10.10.0.1/auth
+      - KEYCLOAK_URL=http://keycloak:8080/auth                                  # backend → Keycloak inside Docker
+      - KEYCLOAK_PUBLIC_URL=http://${HSERVER_LAN_IP:-192.168.4.194}:8443/auth   # browser → Keycloak's sign-in page
+      - KEYCLOAK_CLIENT_SECRET=${HSERVER_CLIENT_SECRET:-}                       # same secret as the hserver-app client
+      - APP_URL=http://${HSERVER_LAN_IP:-192.168.4.194}:5173                    # where you land after logging in
       - HSERVER_LAN_IP=${HSERVER_LAN_IP:-192.168.4.194}
       - PIHOLE_PASSWORD=${PIHOLE_PASSWORD:-${DB_PASSWORD}}
       - PIHOLE_URL=http://10.10.0.53      # Pi-hole's fixed address on net_mgmt

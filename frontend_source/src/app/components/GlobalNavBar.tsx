@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState } from 'react';
+import { getUser, isOwner, logoutUrl } from './AuthGate';
 
 interface GlobalNavBarProps {
   activeView: string;
@@ -15,7 +16,7 @@ const NAV_ITEMS = [
   { id: 'newsfeed', label: 'Newsfeed', icon: '📰' },
   { id: 'quiz', label: 'Quiz Center', icon: '🧪' },
   { id: 'health', label: 'Health', icon: '🏥' },
-  { id: 'network', label: 'Network', icon: '🔒' },
+  { id: 'network', label: 'Network', icon: '🔒', ownerOnly: true },
   { id: 'files', label: 'Files', icon: '📁' },
   { id: 'trash', label: 'Trash', icon: '🗑️' },
 
@@ -49,7 +50,7 @@ export default function GlobalNavBar({ activeView, onViewChange }: GlobalNavBarP
       </div>
 
       {/* Nav Items */}
-      {NAV_ITEMS.map(item => {
+      {NAV_ITEMS.filter(item => !item.ownerOnly || isOwner()).map(item => {
         const isActive = activeView === item.id;
         return (
           <div key={item.id} style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
@@ -108,6 +109,18 @@ export default function GlobalNavBar({ activeView, onViewChange }: GlobalNavBarP
 
       {/* Spacer */}
       <div style={{ flex: 1 }} />
+      {/* Who is logged in + Log out */}
+      {getUser() && (
+        <div style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', color: '#888' }}>
+          <span title={getUser()!.roles.join(', ')}>👤 {getUser()!.name || getUser()!.username}</span>
+          <button
+            onClick={() => { window.location.href = logoutUrl(); }}
+            style={{ background: 'transparent', border: '1px solid #444', color: '#aaa', borderRadius: '4px', padding: '3px 8px', fontSize: '12px', cursor: 'pointer' }}
+          >
+            Log out
+          </button>
+        </div>
+      )}
     </div>
   );
 }

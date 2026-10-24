@@ -10,6 +10,7 @@ import { Inject, forwardRef } from '@nestjs/common'; // <--- Import these
 import { MindmapService } from './mindmap.service';
 import { KeyDBService } from '../keydb/keydb.service';
 import { MetricsService } from '../metrics/metrics.service';
+import { readSession, allowed } from '../auth/session';
 
 @WebSocketGateway({
   path: '/socket.io/',
@@ -19,7 +20,14 @@ import { MetricsService } from '../metrics/metrics.service';
 export class MindmapGateway {
   @WebSocketServer()
   server: Server;
-  afterInit() {
+   afterInit() {
+    // Live updates need the login cookie too (sent automatically with the connection)
+    this.server.use((socket, next) => {
+      const user = readSession(socket.request);
+      if (!user) return next(new Error('Log in to HServer first'));
+      socket.data.user = user;
+      next();
+    });
     this.server.on('connection', () => {
       this.metrics.wsConnections.inc();
     });
@@ -42,14 +50,16 @@ export class MindmapGateway {
     @MessageBody() data: { id: string; x: number; y: number },
     @ConnectedSocket() client: Socket,
   ) {
+    if (!allowed(client.data.user, 'POST', '/socket/node_move')) return;   // family: look only
     client.broadcast.emit('node_moved', data);
     await this.cache.bufferNodePosition(Number(data.id), data.x, data.y);
 
   }
 
   @SubscribeMessage('node_drag_end')
-  async handleDragEnd(@MessageBody() data: { id: string; x: number; y: number }) {
-    console.log(`GATEWAY: Request to save Node ${data.id} at ${data.x}, ${data.y}`);
+  async handleDragEnd(@MessageBody() data: { id: string; x: number; y: number }, @ConnectedSocket() client: Socket) {
+    if (!allowed(client.data.user, 'POST', '/socket/node_drag_end')) return;   // family: look only
+  console.log(`GATEWAY: Request to save Node ${data.id} at ${data.x}, ${data.y}`);
     
     try {
       if (!this.mindmapService) {

@@ -13,6 +13,7 @@ import { MetricsModule } from './metrics/metrics.module';
 import { VpnModule } from './vpn/vpn.module';
 import { PiholeModule } from './pihole/pihole.module';
 import { BackupsModule } from './backups/backups.module';
+import { AuthModule } from './auth/auth.module';
 
 @Module({
   imports: [
@@ -39,6 +40,7 @@ import { BackupsModule } from './backups/backups.module';
     VpnModule,
     PiholeModule,
     BackupsModule,
+    AuthModule,
  ]
 })
 export class AppModule {}
