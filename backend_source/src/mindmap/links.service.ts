@@ -19,6 +19,7 @@
 import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { MindmapGateway } from './mindmap.gateway';
+import { GraphService } from './graph.service';
 
 const HEX = /^#[0-9a-fA-F]{6}$/;
 
@@ -27,14 +28,16 @@ export interface LinkInput { sourceId?: number; targetId?: number; typeId?: numb
 
 @Injectable()
 export class LinksService {
-  constructor(
+    constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(MindmapGateway) private readonly gateway: MindmapGateway,
+    @Inject(GraphService) private readonly graph: GraphService,
   ) {}
 
   // Tell every open browser to reload links
   private changed() {
     try { this.gateway.server?.emit('links_changed'); } catch {}
+    this.graph.markDirty();          // 🧭 update the Neo4j copy
   }
 
   // Postgres errors → plain messages

@@ -19,13 +19,15 @@ import { NetworkController } from './network.controller';
 import { MindmapGateway } from './mindmap.gateway';
 import { LinksService } from './links.service';
 import { LinksController } from './links.controller';
+import { GraphService } from './graph.service';
+import { GraphController } from './graph.controller';
 import { DatabaseModule } from '../database/database.module'; // <--- Added this
 import { Neo4jModule } from '../neo4j/neo4j.module';
 
 @Module({
   imports: [DatabaseModule, Neo4jModule], // <--- ENSURES DatabaseService is available
-   controllers: [MindmapController, FilesController, SearchController, MediaController, NetworkController, LinksController],
-   providers: [MindmapService, MindmapGateway, BacklinksService, GeocodeService, TrashService, FilesService, WebClipService, FlashcardSyncService, SearchService, FileTextService, MediaService, RegionsService, TorrentsService, LinksService],
+   controllers: [MindmapController, FilesController, SearchController, MediaController, NetworkController, LinksController, GraphController],
+   providers: [MindmapService, MindmapGateway, BacklinksService, GeocodeService, TrashService, FilesService, WebClipService, FlashcardSyncService, SearchService, FileTextService, MediaService, RegionsService, TorrentsService, LinksService, GraphService],
    exports: [MindmapService],
 })
 export class MindmapModule {}

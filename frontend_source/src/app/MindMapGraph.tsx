@@ -118,9 +118,11 @@ interface MindMapGraphProps {
   onNodeContextMenu: (e: React.MouseEvent, node: Node) => void;
   selectedNodeId: number | null;
   filterType: string;
-  linkEdges?: { source: number; target: number; kind: 'link' | 'mention' }[];  // backlink lines (dashed)
+   linkEdges?: { source: number; target: number; kind: 'link' | 'mention' }[];  // backlink lines (dashed)
   customLinks?: GraphLink[];          // 🔗 your own links (colour/dash/arrow from their link type)
   onLinksChanged?: () => void;        // another browser changed links → reload them
+  // 🧭 Graph tools answer: these nodes/lines stay bright, the rest dims; badges = small labels above nodes
+  highlight?: { nodes: number[]; edges: { from: number; to: number }[]; badges?: Record<number, string> } | null;
 }
 
 // One line on the graph: to a parent, a backlink (auto), or one of your links
@@ -148,6 +150,7 @@ export default function MindMapGraph({
   linkEdges = NO_LINK_EDGES,
   customLinks = NO_CUSTOM_LINKS,
   onLinksChanged,
+  highlight = null,
 }: MindMapGraphProps) {
   // --------------------------------------------------------
   // REFS
@@ -627,8 +630,27 @@ export default function MindMapGraph({
       .attr('text-anchor', 'middle')
       .attr('fill', '#fff')
       .attr('font-size', 12)
-      .attr('font-weight', 500)
+           .attr('font-weight', 500)
       .text(d => d.name.length > 15 ? d.name.slice(0, 12) + '...' : d.name);
+
+    // --------------------------------------------------------
+    // 🧭 GRAPH TOOLS ANSWER - light up those nodes and lines, dim the rest
+    // --------------------------------------------------------
+    if (highlight) {
+      const pairKey = (a: number, b: number) => (a < b ? `${a}-${b}` : `${b}-${a}`);
+      const lit = new Set(highlight.nodes);
+      const litEdges = new Set(highlight.edges.map(e => pairKey(e.from, e.to)));
+      nodeGroups.style('opacity', (d: any) => (lit.has(d.id) ? 1 : 0.15));
+      edgeGroups.style('opacity', (e: GraphEdge) => (litEdges.has(pairKey(e.source, e.target)) ? 1 : 0.08));
+      // small numbered badge above the node (learning order / steps away)
+      const badged = nodeGroups.filter((d: any) => !!highlight.badges?.[d.id]);
+      const badge = badged.append('g')
+        .attr('transform', (d: any) => { const r = nodeRadius(metaOf(d)); return `translate(${r * 0.75}, ${-r * 0.75})`; })
+        .style('pointer-events', 'none');
+      badge.append('circle').attr('r', 9).attr('fill', '#f59e0b').attr('stroke', '#1a1a2e').attr('stroke-width', 2);
+      badge.append('text').attr('text-anchor', 'middle').attr('dy', 3.5).attr('font-size', 10).attr('font-weight', 700).attr('fill', '#111')
+        .text((d: any) => highlight.badges![d.id]);
+    }
 
     // Redraw the lines touching one node (after a drag or a move from another browser)
     const updateEdges = (nodeId: number) => {
@@ -776,7 +798,7 @@ export default function MindMapGraph({
 
     
 
-  }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges, customLinks]);
+   }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges, customLinks, highlight]);
 
   // ============================================================
   // RENDER

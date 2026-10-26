@@ -135,6 +135,9 @@ export default function ContextMenu({
     { label: '➕ Add Child', icon: '➕', action: 'addChild' },
     { label: '🔗 Set Parent...', icon: '🔗', action: 'setParent' },
     { label: '🔗 Link to another node…', icon: '🔗', action: 'addLink' },
+    { label: '🧭 Learning path to here', icon: '🧭', action: 'graphBefore' },
+    { label: '🧭 Path to another node…', icon: '🧭', action: 'graphPath' },
+    { label: '🧭 Show nearby', icon: '🧭', action: 'graphNear' },
     { 
       label: '✏️ Edit Link Text', 
       icon: '✏️',

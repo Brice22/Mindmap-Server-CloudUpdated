@@ -50,6 +50,7 @@ import TrashView from './components/TrashView';
 import FilesPanel, { FilePreview } from './components/FilesPanel';
 import LinkDialog from './components/LinkDialog';
 import LinkLegend from './components/LinkLegend';
+import GraphToolsPanel, { type GraphToolMode, type GraphHighlight } from './components/GraphToolsPanel';
 import { isOwner } from './components/AuthGate';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel, LinkType, NodeLink, GraphLink } from '@/lib/types';
 // ============================================================
@@ -128,6 +129,9 @@ export default function Dashboard() {
   const [linkData, setLinkData] = useState<{ types: LinkType[]; links: NodeLink[] }>({ types: [], links: [] });
   const [linksRefresh, setLinksRefresh] = useState(0);
   const [linkDialog, setLinkDialog] = useState<{ source?: Node; link?: NodeLink } | null>(null);
+  // 🧭 Graph tools (Neo4j): which question is open, and what to light up on the graph
+  const [graphTool, setGraphTool] = useState<{ mode: GraphToolMode; node: Node } | null>(null);
+  const [graphHighlight, setGraphHighlight] = useState<GraphHighlight | null>(null);
   const [hiddenLinkTypes, setHiddenLinkTypes] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('hserver:hiddenLinkTypes') || '[]')); } catch { return new Set(); }
   });
@@ -488,6 +492,18 @@ export default function Dashboard() {
 
       case 'addLink':
         setLinkDialog({ source: node });
+        break;
+
+      case 'graphBefore':
+        setGraphTool({ mode: 'before', node });
+        break;
+
+      case 'graphPath':
+        setGraphTool({ mode: 'path', node });
+        break;
+
+      case 'graphNear':
+        setGraphTool({ mode: 'near', node });
         break;
 
       case 'removeParent':
@@ -855,6 +871,19 @@ export default function Dashboard() {
                         canEdit={isOwner()}
                         onChanged={reloadLinks}
                       />
+                     {/* 🧭 Graph tools answer (bottom-left) */}
+                     {graphTool && (
+                       <GraphToolsPanel
+                          apiUrl={API_URL}
+                          nodes={nodes}
+                          types={linkData.types}
+                          mode={graphTool.mode}
+                          node={nodes.find(n => n.id === graphTool.node.id) || graphTool.node}
+                          onClose={() => setGraphTool(null)}
+                          onHighlight={setGraphHighlight}
+                          onSelectNode={handleNodeClick}
+                        />
+                     )}
                      <MindMapGraph
                         data={nodes}
                         onNodeClick={handleNodeClick}
@@ -865,6 +894,7 @@ export default function Dashboard() {
                         linkEdges={showLinkLines ? linkEdges : undefined}
                         customLinks={graphLinks}
                         onLinksChanged={reloadLinks}
+                        highlight={graphTool ? graphHighlight : null}
                       />
                      </>
                     )}
