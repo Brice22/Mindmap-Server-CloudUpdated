@@ -281,6 +281,7 @@ services:
       - RESTIC_PASSWORD=${RESTIC_PASSWORD:-}
       - RESTIC_REPOSITORY=/drive/hserver-restic
       - BACKUP_TIME=${BACKUP_TIME:-03:30}
+      - NEWS_FETCH_TIME=${NEWS_FETCH_TIME:-06:00}       # 📰 the server fetches news once a day at this time
       - INCLUDE_TORRENTS=${BACKUP_INCLUDE_TORRENTS:-no}
       - BACKUP_STATUS_DIR=/backup-work/status
     networks:

@@ -20,7 +20,13 @@ import { DatabaseService } from '../database/database.service';
 import { MindmapService } from './mindmap.service';
 import { WebClipService } from './web-clip.service';
 
-const EVERY_MINUTES = Math.max(10, Number(process.env.NEWS_FETCH_MINUTES) || 60);
+// "06:00" → [6, 0]; anything odd → 6:00
+function fetchTime(): [number, number] {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(String(process.env.NEWS_FETCH_TIME || '06:00').trim());
+  const h = m ? Number(m[1]) : 6, min = m ? Number(m[2]) : 0;
+  return h < 24 && min < 60 ? [h, min] : [6, 0];
+}
+const DAY_MS = 24 * 60 * 60 * 1000;
 
 @Injectable()
 export class NewsArchiveService implements OnModuleInit, OnModuleDestroy {
@@ -33,16 +39,34 @@ export class NewsArchiveService implements OnModuleInit, OnModuleDestroy {
     @Inject(DatabaseService) private readonly db: DatabaseService,
     @Inject(MindmapService) private readonly mindmap: MindmapService,
     @Inject(WebClipService) private readonly clips: WebClipService,
-  ) {}
+    ) {}
 
   onModuleInit() {
-    this.first = setTimeout(() => this.fetchNow(), 2 * 60_000);          // 2 minutes after startup
-    this.timer = setInterval(() => this.fetchNow(), EVERY_MINUTES * 60_000);
+    // Catch up 2 minutes after startup if nothing new arrived in the last day (e.g. the server was off at fetch time)
+    this.first = setTimeout(async () => {
+      try {
+        const r = await this.db.query('SELECT MAX(created_at) AS last FROM saved_articles');
+        const last = r.rows[0]?.last ? new Date(r.rows[0].last).getTime() : 0;
+        if (Date.now() - last > DAY_MS) await this.fetchNow();
+      } catch {}
+    }, 2 * 60_000);
+    this.scheduleNext();
   }
 
   onModuleDestroy() {
     clearTimeout(this.first);
-    clearInterval(this.timer);
+    clearTimeout(this.timer);
+  }
+
+  // Next NEWS_FETCH_TIME (today if it's still ahead, otherwise tomorrow)
+  private scheduleNext() {
+    const [h, m] = fetchTime();
+    const next = new Date();
+    next.setHours(h, m, 0, 0);
+    if (next.getTime() <= Date.now() + 1000) next.setDate(next.getDate() + 1);
+    clearTimeout(this.timer);
+    this.timer = setTimeout(async () => { await this.fetchNow(); this.scheduleNext(); }, next.getTime() - Date.now());
+    this.logger.log(`News: next fetch ${next.toLocaleString()}`);
   }
 
   private async fetchNow() {

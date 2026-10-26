@@ -29,6 +29,7 @@ interface NewsArticle {
   read: boolean;
   archived: boolean;
   saved: boolean;
+  created_at?: string;           // when HServer fetched it
   copy_path?: string | null;     // 💾 the saved copy (in uploads)
 }
 
@@ -51,19 +52,27 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
   const [newSourceCategory, setNewSourceCategory] = useState('Custom');
    const [newSourceApiKey, setNewSourceApiKey] = useState('');
   const [fetching, setFetching] = useState(false);
-  const [lastFetch, setLastFetch] = useState('');
+   const [lastFetch, setLastFetch] = useState('');
   const [keeping, setKeeping] = useState<string | number | null>(null);          // 💾 copy being downloaded
   const [keepError, setKeepError] = useState<{ id: string | number; text: string } | null>(null);
+  // ⇅ Oldest first (default) or newest first — remembered in this browser
+  const [oldestFirst, setOldestFirst] = useState(() => {
+    try { return localStorage.getItem('hserver:newsOldestFirst') !== '0'; } catch { return true; }
+  });
+  const toggleOrder = () => setOldestFirst(o => {
+    try { localStorage.setItem('hserver:newsOldestFirst', o ? '0' : '1'); } catch {}
+    return !o;
+  });
 
   // Fetch from enabled sources
   // Load sources and articles from backend on mount
   useEffect(() => {
     const load = async () => {
       try {
-        await fetch(`${API_URL}/api/mindmap/news/seed`, { method: 'POST' });
+               await fetch(`${API_URL}/api/mindmap/news/seed`, { method: 'POST' });
         const [srcRes, artRes] = await Promise.allSettled([
           fetch(`${API_URL}/api/mindmap/news/sources`).then(r => r.ok ? r.json() : []),
-          fetch(`${API_URL}/api/mindmap/news/articles?filter=unread`).then(r => r.ok ? r.json() : []),
+          fetch(`${API_URL}/api/mindmap/news/articles`).then(r => r.ok ? r.json() : []),
         ]);
         if (srcRes.status === 'fulfilled') setSources(srcRes.value);
         if (artRes.status === 'fulfilled') setArticles(artRes.value);
@@ -84,23 +93,23 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
         if (artRes.ok) setArticles(await artRes.json());
       }
     } catch { setLastFetch('Fetch failed'); }
-    setFetching(false);
+       setFetching(false);
   };
 
-  // Auto-refresh every 10 minutes
-  useEffect(() => {
-    refreshFeeds();
-    const interval = setInterval(refreshFeeds, 10 * 60 * 1000);
-    return () => clearInterval(interval);
-  }, []);
+  // (No automatic fetching here any more: the server fetches once a day; 🔄 Refresh fetches now.)
 
+  // When an article came out (its own date, or when HServer fetched it)
+  const timeOf = (a: NewsArticle) => {
+    const t = Date.parse(a.date) || Date.parse(a.created_at || '');
+    return Number.isFinite(t) ? t : 0;
+  };
   const filteredArticles = articles.filter(a => {
     if (viewFilter === 'unread' && (a.read || a.archived)) return false;
     if (viewFilter === 'saved' && !a.saved) return false;
     if (viewFilter === 'archived' && !a.archived) return false;
     if (activeCategory !== 'All' && a.category !== activeCategory) return false;
     return true;
-  });
+  }).sort((a, b) => (oldestFirst ? timeOf(a) - timeOf(b) : timeOf(b) - timeOf(a)));
 
   const unreadCount = articles.filter(a => !a.read && !a.archived).length;
 
@@ -169,10 +178,14 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
               {unreadCount}
             </span>
           )}
-        </div>
+               </div>
        <div style={{ display: 'flex', gap: '8px', alignItems: 'center' }}>
           {lastFetch && <span style={{ color: '#666', fontSize: '11px' }}>{lastFetch}</span>}
-          <button onClick={refreshFeeds} disabled={fetching}
+          <button onClick={toggleOrder} title="Switch between oldest first and newest first"
+            style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer' }}>
+            ⇅ {oldestFirst ? 'Oldest first' : 'Newest first'}
+          </button>
+          <button onClick={refreshFeeds} disabled={fetching} title='Fetch now (the server also fetches by itself once a day)'
             style={{ background: fetching ? '#555' : '#333', border: 'none', color: '#ccc', padding: '8px 12px', borderRadius: '4px', cursor: fetching ? 'wait' : 'pointer' }}>
             {fetching ? '⏳ Fetching...' : '🔄 Refresh'}
           </button>
