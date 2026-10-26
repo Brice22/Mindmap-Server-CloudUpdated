@@ -26,7 +26,7 @@
 
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import MindMapGraph from './MindMapGraph';
 import ContextMenu from './components/ContextMenu';
 import NodeWorkspace from './components/NodeWorkspace';
@@ -48,7 +48,10 @@ import QuizCenter from './components/QuizCenter';
 import NetworkPanel from './components/NetworkPanel';
 import TrashView from './components/TrashView';
 import FilesPanel, { FilePreview } from './components/FilesPanel';
-import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel } from '@/lib/types';
+import LinkDialog from './components/LinkDialog';
+import LinkLegend from './components/LinkLegend';
+import { isOwner } from './components/AuthGate';
+import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel, LinkType, NodeLink, GraphLink } from '@/lib/types';
 // ============================================================
 // API BASE URL
 // ============================================================
@@ -121,6 +124,13 @@ export default function Dashboard() {
   const [linkEdges, setLinkEdges] = useState<{ source: number; target: number; kind: 'link' | 'mention' }[]>([]);
   const [showLinkLines, setShowLinkLines] = useState(true);
   const [backlinksRefresh, setBacklinksRefresh] = useState(0);
+  // 🔗 Your links between nodes + their link types
+  const [linkData, setLinkData] = useState<{ types: LinkType[]; links: NodeLink[] }>({ types: [], links: [] });
+  const [linksRefresh, setLinksRefresh] = useState(0);
+  const [linkDialog, setLinkDialog] = useState<{ source?: Node; link?: NodeLink } | null>(null);
+  const [hiddenLinkTypes, setHiddenLinkTypes] = useState<Set<string>>(() => {
+    try { return new Set(JSON.parse(localStorage.getItem('hserver:hiddenLinkTypes') || '[]')); } catch { return new Set(); }
+  });
   // --------------------------------------------------------
   // STATE: New Features
   // --------------------------------------------------------
@@ -205,9 +215,54 @@ export default function Dashboard() {
         .then(r => (r.ok ? r.json() : []))
         .then(setLinkEdges)
         .catch(() => {});
-    }, 500);
+       }, 500);
     return () => clearTimeout(t);
   }, [nodes, backlinksRefresh]);
+
+  // 🔗 Your links — reloaded when nodes reload (a deleted node takes its links with it) or a link changes
+  const reloadLinks = useCallback(() => setLinksRefresh(n => n + 1), []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/api/mindmap/links`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (d) setLinkData({ types: d.types || [], links: d.links || [] }); })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [nodes, linksRefresh]);
+
+  const toggleLinkType = useCallback((key: string) => {
+    setHiddenLinkTypes(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      try { localStorage.setItem('hserver:hiddenLinkTypes', JSON.stringify(Array.from(next))); } catch {}
+      return next;
+    });
+  }, []);
+
+  // What the graph draws: each link with its type's colour / dash / arrow, minus hidden types
+  const graphLinks = useMemo<GraphLink[]>(() => {
+    const byId = new Map(linkData.types.map(t => [t.id, t]));
+    return linkData.links
+      .filter(l => !hiddenLinkTypes.has(l.typeId == null ? 'none' : String(l.typeId)))
+      .map(l => {
+        const t = l.typeId == null ? undefined : byId.get(l.typeId);
+        return {
+          id: l.id, source: l.sourceId, target: l.targetId, label: l.label || '',
+          color: t?.color || '#9ca3af', dashed: t?.dashed ?? false, arrow: t?.arrow ?? false, typeName: t?.name || 'No type',
+        };
+      });
+  }, [linkData, hiddenLinkTypes]);
+
+  // Right-click on one of your link lines → edit it
+  useEffect(() => {
+    const handler = (e: any) => {
+      const link = linkData.links.find(l => l.id === e.detail?.linkId);
+      if (link) setLinkDialog({ link });
+    };
+    window.addEventListener('editCustomLink', handler);
+    return () => window.removeEventListener('editCustomLink', handler);
+  }, [linkData]);
   
   // --------------------------------------------------------
   // Remember where you were (in this browser): view, selected node, open workspace.
@@ -428,7 +483,11 @@ export default function Dashboard() {
         break;
 
       case 'editLinkText':
-        setModal({ visible: true, mode: 'editLinkText', node });
+               setModal({ visible: true, mode: 'editLinkText', node });
+        break;
+
+      case 'addLink':
+        setLinkDialog({ source: node });
         break;
 
       case 'removeParent':
@@ -781,21 +840,21 @@ export default function Dashboard() {
                     ) : error ? (
                       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100%', color: '#ef4444' }}>
                                              <span>Error: {error}</span>
-                      </div>
+                                          </div>
                     ) : (
                      <>
-                     {/* Toggle the dashed backlink lines (blue = linked, grey = mentioned) */}
-                     <button
-                        onClick={() => setShowLinkLines(s => !s)}
-                        title="Show or hide backlink lines between nodes"
-                        style={{
-                          position: 'absolute', top: 10, right: 10, zIndex: 5,
-                          background: showLinkLines ? '#0070f3' : '#333', color: '#fff',
-                          border: 'none', borderRadius: 4, padding: '4px 10px', fontSize: 12, cursor: 'pointer',
-                        }}
-                      >
-                        🔗 Links {showLinkLines ? 'on' : 'off'}
-                      </button>
+                     {/* 🔗 What each line colour means; click to hide/show (Auto = backlink lines from docs) */}
+                     <LinkLegend
+                        apiUrl={API_URL}
+                        types={linkData.types}
+                        links={linkData.links}
+                        hidden={hiddenLinkTypes}
+                        onToggle={toggleLinkType}
+                        autoOn={showLinkLines}
+                        onToggleAuto={() => setShowLinkLines(s => !s)}
+                        canEdit={isOwner()}
+                        onChanged={reloadLinks}
+                      />
                      <MindMapGraph
                         data={nodes}
                         onNodeClick={handleNodeClick}
@@ -804,6 +863,8 @@ export default function Dashboard() {
                         selectedNodeId={selectedNode?.id || null}
                         filterType={filterType}
                         linkEdges={showLinkLines ? linkEdges : undefined}
+                        customLinks={graphLinks}
+                        onLinksChanged={reloadLinks}
                       />
                      </>
                     )}
@@ -1168,6 +1229,19 @@ export default function Dashboard() {
           allNodes={nodes}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0, node: null })}
           onAction={handleContextAction}
+              />
+      )}
+
+      {/* 🔗 ADD / EDIT A LINK */}
+      {linkDialog && (
+        <LinkDialog
+          apiUrl={API_URL}
+          nodes={nodes}
+          types={linkData.types}
+          source={linkDialog.source}
+          link={linkDialog.link}
+          onClose={() => setLinkDialog(null)}
+          onSaved={reloadLinks}
         />
       )}
 

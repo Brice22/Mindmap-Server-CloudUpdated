@@ -131,12 +131,13 @@ export default function ContextMenu({
     { label: '📂 Open in Tab', icon: '📂', action: 'openTab' },
     { label: '🪟 Open Workspace', icon: '🪟', action: 'openWorkspace', divider: true },
     
-    // === NODE OPERATIONS ===
+       // === NODE OPERATIONS ===
     { label: '➕ Add Child', icon: '➕', action: 'addChild' },
     { label: '🔗 Set Parent...', icon: '🔗', action: 'setParent' },
+    { label: '🔗 Link to another node…', icon: '🔗', action: 'addLink' },
     { 
       label: '✏️ Edit Link Text', 
-      icon: '✏️', 
+      icon: '✏️',
       action: 'editLinkText',
       disabled: !meta.parent,  // Only if has parent
     },

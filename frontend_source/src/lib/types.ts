@@ -304,3 +304,37 @@ export interface MindmapCollection {
     zoom?: number;
   };
 }
+// ============================================================
+// 🔗 LINKS - your own lines between any two nodes
+// ============================================================
+// A link type is a kind of line you name yourself ("Prerequisite",
+// "Causes"…) with its own colour, dashed or solid, arrow or not.
+export interface LinkType {
+  id: number;
+  name: string;
+  color: string;          // #rrggbb
+  dashed: boolean;
+  arrow: boolean;         // points from source → target
+  description?: string;
+  sortOrder?: number;
+}
+
+export interface NodeLink {
+  id: number;
+  sourceId: number;
+  targetId: number;
+  typeId: number | null;  // null = "No type" (plain grey line)
+  label?: string;
+}
+
+// What the graph draws for one link (type looked up already)
+export interface GraphLink {
+  id: number;
+  source: number;
+  target: number;
+  color: string;
+  dashed: boolean;
+  arrow: boolean;
+  label: string;
+  typeName: string;
+}

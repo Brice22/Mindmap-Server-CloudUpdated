@@ -276,9 +276,41 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           imported_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         )`,
                 // Flashcards written in Docs: which document and block each one came from
-        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES node_documents(id) ON DELETE CASCADE`,
+               `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS document_id INTEGER REFERENCES node_documents(id) ON DELETE CASCADE`,
         `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS block_id TEXT`,
         `CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_doc_block ON flashcards(document_id, block_id)`,
+        // 🔗 Your own links between any two nodes, each with a link type you name (colour, dashed, arrow).
+        // The four starter types are only added the first time (rename or delete them freely).
+        `DO $$ BEGIN
+           IF to_regclass('public.link_types') IS NULL THEN
+             CREATE TABLE link_types (
+               id SERIAL PRIMARY KEY,
+               name TEXT NOT NULL UNIQUE,
+               color TEXT NOT NULL DEFAULT '#a855f7',
+               dashed BOOLEAN NOT NULL DEFAULT true,
+               arrow BOOLEAN NOT NULL DEFAULT false,
+               description TEXT DEFAULT '',
+               sort_order INTEGER NOT NULL DEFAULT 0,
+               created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+             );
+             INSERT INTO link_types (name, color, dashed, arrow, description, sort_order) VALUES
+               ('Related',      '#a855f7', true,  false, 'Connected in some way',         1),
+               ('Prerequisite', '#f59e0b', false, true,  'Learn this first, then that',   2),
+               ('Causes',       '#ef4444', false, true,  'This leads to that',            3),
+               ('Example of',   '#22c55e', true,  true,  'This is an example of that',    4);
+           END IF;
+         END $$`,
+        `CREATE TABLE IF NOT EXISTS node_links (
+          id SERIAL PRIMARY KEY,
+          source_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          target_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          type_id INTEGER REFERENCES link_types(id) ON DELETE SET NULL,
+          label TEXT DEFAULT '',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          CHECK (source_id <> target_id)
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_node_links_source ON node_links(source_id)`,
+        `CREATE INDEX IF NOT EXISTS idx_node_links_target ON node_links(target_id)`,
       ];
 
       for (const sql of additionalTables) {

@@ -27,12 +27,15 @@ import * as d3 from 'd3';
 import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { io, Socket } from 'socket.io-client';
-import type { Node, DragState } from '@/lib/types';
+import type { Node, DragState, GraphLink } from '@/lib/types';
 
 // ============================================================
 // CONSTANTS
 // ============================================================
 const SOCKET_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000'; // WebSocket server URL (adjust as needed)
+// Live updates go straight to the backend (/socket.io/) when the address has a port, like
+// http://192.168.4.194:3000; through nginx (/mindmap-socket/socket.io/) when it doesn't (https://… later)
+const SOCKET_VIA_NGINX = !/:\d+$/.test(SOCKET_URL.replace(/\/+$/, ''));
 const DRAG_THRESHOLD = 5;  // Pixels mouse must move to count as drag
 
 // Saved photos are stored as /uploads/... — served by nginx on the server and
@@ -116,10 +119,21 @@ interface MindMapGraphProps {
   selectedNodeId: number | null;
   filterType: string;
   linkEdges?: { source: number; target: number; kind: 'link' | 'mention' }[];  // backlink lines (dashed)
+  customLinks?: GraphLink[];          // 🔗 your own links (colour/dash/arrow from their link type)
+  onLinksChanged?: () => void;        // another browser changed links → reload them
 }
+
+// One line on the graph: to a parent, a backlink (auto), or one of your links
+type GraphEdge = {
+  source: number; target: number; label?: string; color?: string;
+  kind?: 'link' | 'mention' | 'custom';
+  id?: number; dashed?: boolean; arrow?: boolean; typeName?: string;
+  offset?: number;                     // side-step when two nodes have more than one line
+};
 
 // Same empty array every render, so "no link lines" doesn't redraw the graph each time
 const NO_LINK_EDGES: { source: number; target: number; kind: 'link' | 'mention' }[] = [];
+const NO_CUSTOM_LINKS: GraphLink[] = [];
 
 // ============================================================
 // COMPONENT
@@ -129,9 +143,11 @@ export default function MindMapGraph({
   onNodeClick,
   onNodeDoubleClick,
   onNodeContextMenu,
-   selectedNodeId,
+    selectedNodeId,
   filterType,
   linkEdges = NO_LINK_EDGES,
+  customLinks = NO_CUSTOM_LINKS,
+  onLinksChanged,
 }: MindMapGraphProps) {
   // --------------------------------------------------------
   // REFS
@@ -149,13 +165,15 @@ export default function MindMapGraph({
     startY: 0,
     nodeId: null,
     hasMoved: false,
-  });
+    });
 
   // Store callbacks in ref to avoid dependency issues
-  const callbacksRef = useRef({ onNodeClick, onNodeDoubleClick, onNodeContextMenu });
+  const callbacksRef = useRef({ onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged });
   useEffect(() => {
-    callbacksRef.current = { onNodeClick, onNodeDoubleClick, onNodeContextMenu };
-  }, [onNodeClick, onNodeDoubleClick, onNodeContextMenu]);
+    callbacksRef.current = { onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged };
+  }, [onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged]);
+  // Moves a node and its lines (set by the drawing code; used for moves from other browsers)
+  const moveNodeRef = useRef<((id: number, x: number, y: number) => void) | null>(null);
 
   // ============================================================
   // WEBSOCKET CONNECTION
@@ -185,11 +203,10 @@ export default function MindMapGraph({
     console.log('[MindMapGraph] Connecting to WebSocket...');
     
     // Connect to the mindmap namespace
-    const isLocal = SOCKET_URL.includes('localhost');
     socketRef.current = io(`${SOCKET_URL}/mindmap`, {
-      path: isLocal ? '/socket.io/' : '/mindmap-socket/socket.io/',
+      path: SOCKET_VIA_NGINX ? '/mindmap-socket/socket.io/' : '/socket.io/',
       transports: ['websocket'],
-      secure: !isLocal,
+      secure: SOCKET_URL.startsWith('https'),
       reconnection: true,
       reconnectionAttempts: 5,
       reconnectionDelay: 1000,
@@ -200,7 +217,16 @@ export default function MindMapGraph({
     });
 
     socketRef.current.on('disconnect', () => {
-      console.log('[MindMapGraph] WebSocket disconnected');
+          console.log('[MindMapGraph] WebSocket disconnected');
+    });
+
+    socketRef.current.on('connect_error', (err: any) => {
+      console.warn('[MindMapGraph] Live updates not connected:', err?.message);
+    });
+
+    // Someone added, changed or removed a link in another browser
+    socketRef.current.on('links_changed', () => {
+      callbacksRef.current.onLinksChanged?.();
     });
 
     // --------------------------------------------------------
@@ -209,9 +235,9 @@ export default function MindMapGraph({
     // When another user drags a node, move it on our screen too
     // --------------------------------------------------------
     socketRef.current.on('node_moved', (moveData: { id: number; x: number; y: number }) => {
-      // Find the node group and update its position
-      d3.select(`#node-group-${moveData.id}`)
-        .attr('transform', `translate(${moveData.x}, ${moveData.y})`);
+      // Move the node and its lines
+      if (moveNodeRef.current) moveNodeRef.current(Number(moveData.id), moveData.x, moveData.y);
+      else d3.select(`#node-group-${moveData.id}`).attr('transform', `translate(${moveData.x}, ${moveData.y})`);
     });
 
     // Cleanup on unmount
@@ -310,7 +336,7 @@ export default function MindMapGraph({
     });
 
     // Build edges from parent references
-    const edges: { source: number; target: number; label?: string; kind?: 'link' | 'mention'; color?: string }[] = [];
+    const edges: GraphEdge[] = [];
     filteredData.forEach(node => {
       const meta = typeof node.metadata === 'string'
         ? JSON.parse(node.metadata)
@@ -328,18 +354,53 @@ export default function MindMapGraph({
              color: meta.lineColor || undefined,   // colour of the line to its parent
           });
         }
-      }
+           }
     });
 
-       // Backlink lines (dashed) between visible nodes, skipping pairs already joined by a parent line
+    // 🔗 Your links between visible nodes
     const visibleIds = new Set(filteredData.map(n => n.id));
+    for (const l of customLinks) {
+      if (!visibleIds.has(l.source) || !visibleIds.has(l.target)) continue;
+      edges.push({ source: l.source, target: l.target, label: l.label, kind: 'custom', id: l.id,
+        color: l.color, dashed: l.dashed, arrow: l.arrow, typeName: l.typeName });
+    }
+
+       // Backlink lines (dashed) between visible nodes, skipping pairs already joined by a line
     const joined = new Set(edges.map(e => [e.source, e.target].sort().join('-')));
     for (const l of linkEdges) {
       const key = [l.source, l.target].sort().join('-');
       if (!visibleIds.has(l.source) || !visibleIds.has(l.target) || joined.has(key)) continue;
       joined.add(key);
-      edges.push({ source: l.source, target: l.target, label: '', kind: l.kind });
+           edges.push({ source: l.source, target: l.target, label: '', kind: l.kind });
     }
+
+    // Two nodes with several lines: each extra line steps to the side (0, +9, -9, +18…)
+    const perPair: Record<string, number> = {};
+    for (const e of edges) {
+      const key = [e.source, e.target].sort((a, b) => a - b).join('-');
+      const i = perPair[key] = (perPair[key] ?? -1) + 1;
+      const step = Math.ceil(i / 2) * 9 * (i % 2 ? 1 : -1);
+      // same side no matter which way the line points
+      e.offset = e.source < e.target ? step : -step;
+    }
+
+    // Where a line starts and ends: side-step for extra lines, arrow tip stops at the node's edge
+    const nodeById = new Map(d3Nodes.map(n => [n.id, n]));
+    const metaOf = (n: any) => (typeof n?.metadata === 'string' ? JSON.parse(n.metadata) : n?.metadata || {});
+    const ends = (e: GraphEdge) => {
+      const s = nodeById.get(e.source), t = nodeById.get(e.target);
+      if (!s || !t) return { x1: 0, y1: 0, x2: 0, y2: 0 };
+      let x1 = s.x, y1 = s.y, x2 = t.x, y2 = t.y;
+      const dx = x2 - x1, dy = y2 - y1, len = Math.hypot(dx, dy) || 1;
+      const off = e.offset || 0;
+      x1 += (-dy / len) * off; y1 += (dx / len) * off;
+      x2 += (-dy / len) * off; y2 += (dx / len) * off;
+      if (e.arrow) {
+        const back = Math.min(len / 2, nodeRadius(metaOf(t)) + 6);
+        x2 -= (dx / len) * back; y2 -= (dy / len) * back;
+      }
+      return { x1, y1, x2, y2 };
+    };
 
     // --------------------------------------------------------
     // CREATE CONTAINER GROUP
@@ -370,8 +431,22 @@ export default function MindMapGraph({
 
     svg.call(zoom);
 
-    // Restore previous transform (preserves zoom/pan state)
+        // Restore previous transform (preserves zoom/pan state)
     svg.call(zoom.transform, transformRef.current);
+
+    // Arrow heads, one per colour used by your link types
+    const arrowId = (color: string) => `hs-arrow-${color.replace(/[^0-9a-zA-Z]/g, '')}`;
+    const defs = svg.append('defs');
+    for (const color of Array.from(new Set(edges.filter(e => e.arrow && e.color).map(e => e.color!)))) {
+      defs.append('marker')
+        .attr('id', arrowId(color))
+        .attr('viewBox', '0 -5 10 10')
+        .attr('refX', 9).attr('refY', 0)
+        .attr('markerUnits', 'userSpaceOnUse')
+        .attr('markerWidth', 11).attr('markerHeight', 11)
+        .attr('orient', 'auto')
+        .append('path').attr('d', 'M0,-5L10,0L0,5Z').attr('fill', color);
+    }
     // --------------------------------------------------------
     // DRAW EDGES (Lines between nodes)
     // --------------------------------------------------------
@@ -382,55 +457,56 @@ export default function MindMapGraph({
       .enter()
       .append('g');
 
-    // Draw the line
+       // Draw the line
     edgeGroups.append('line')
-      .attr('x1', d => {
-        const source = d3Nodes.find(n => n.id === d.source);
-        return source?.x || 0;
-      })
-      .attr('y1', d => {
-        const source = d3Nodes.find(n => n.id === d.source);
-        return source?.y || 0;
-      })
-      .attr('x2', d => {
-        const target = d3Nodes.find(n => n.id === d.target);
-        return target?.x || 0;
-      })
-      .attr('y2', d => {
-        const target = d3Nodes.find(n => n.id === d.target);
-        return target?.y || 0;
-      })
-      .attr('stroke', d => (d.kind === 'link' ? '#3b82f6' : d.kind === 'mention' ? '#888' : d.color || '#555'))
-      .attr('stroke-width', d => (d.kind ? 1.5 : 2))
-      .attr('stroke-dasharray', d => (d.kind ? '5,4' : null))
-      .attr('stroke-opacity', d => (d.color ? 0.9 : 0.6));
+      .attr('class', 'edge-line')
+      .attr('x1', d => ends(d).x1).attr('y1', d => ends(d).y1)
+      .attr('x2', d => ends(d).x2).attr('y2', d => ends(d).y2)
+      .attr('stroke', d => (d.kind === 'link' ? '#3b82f6' : d.kind === 'mention' ? '#888' : d.color || (d.kind === 'custom' ? '#9ca3af' : '#555')))
+      .attr('stroke-width', d => (d.kind === 'custom' ? 2.5 : d.kind ? 1.5 : 2))
+      .attr('stroke-dasharray', d => (d.kind === 'custom' ? (d.dashed ? '8,5' : null) : d.kind ? '5,4' : null))
+      .attr('stroke-opacity', d => (d.kind === 'custom' ? 0.95 : d.color ? 0.9 : 0.6))
+      .attr('marker-end', d => (d.arrow && d.color ? `url(#${arrowId(d.color)})` : null));
+
+    // Wider invisible line on top, so thin lines are easy to right-click
+    edgeGroups.append('line')
+      .attr('class', 'edge-hit')
+      .attr('x1', d => ends(d).x1).attr('y1', d => ends(d).y1)
+      .attr('x2', d => ends(d).x2).attr('y2', d => ends(d).y2)
+      .attr('stroke', 'transparent').attr('stroke-width', 12)
+      .style('cursor', d => (d.kind === 'custom' || !d.kind ? 'context-menu' : 'default'));
+
+    // Hover text: what kind of line it is
+    edgeGroups.append('title').text(d =>
+      d.kind === 'custom' ? `${d.typeName || 'No type'}${d.label ? `: ${d.label}` : ''} (right-click to edit)`
+      : d.kind === 'link' ? 'Linked in a document' : d.kind === 'mention' ? 'Mentioned in text' : d.label ? `Parent line: ${d.label}` : 'Parent line');
 
   // Right-click edge to edit relationship
     edgeGroups.on('contextmenu', function(event: any, d: any) {
       event.preventDefault();
       event.stopPropagation();
+      if (d.kind === 'custom') {   // 🔗 your link → edit it
+        window.dispatchEvent(new CustomEvent('editCustomLink', { detail: { linkId: d.id } }));
+        return;
+      }
       if (d.kind) return; // backlink lines have no relationship text to edit
       const sourceNode = filteredData.find(n => n.id === d.source);
       if (sourceNode) {
         callbacksRef.current.onNodeClick(sourceNode);
         // Trigger editLinkText via a custom event
         window.dispatchEvent(new CustomEvent('editLinkText', { detail: sourceNode }));
-      }
+          }
     });
 
-    // Draw edge labels
+    // Draw edge labels (halfway along the line)
+    const midX = (d: GraphEdge) => { const p = ends(d); return (p.x1 + p.x2) / 2; };
+    const midY = (d: GraphEdge) => { const p = ends(d); return (p.y1 + p.y2) / 2 - 3; };
     edgeGroups.append('text')
-      .attr('x', d => {
-        const source = d3Nodes.find(n => n.id === d.source);
-        const target = d3Nodes.find(n => n.id === d.target);
-        return ((source?.x || 0) + (target?.x || 0)) / 2;
-      })
-      .attr('y', d => {
-        const source = d3Nodes.find(n => n.id === d.source);
-        const target = d3Nodes.find(n => n.id === d.target);
-        return ((source?.y || 0) + (target?.y || 0)) / 2;
-      })
-      .attr('fill', '#888')
+      .attr('class', 'edge-label')
+      .attr('x', midX)
+      .attr('y', midY)
+      .style('pointer-events', 'none')
+      .attr('fill', d => (d.kind === 'custom' && d.color ? d.color : '#888'))
       .attr('font-size', 10)
       .attr('text-anchor', 'middle')
       .text(d => d.label || '');
@@ -554,6 +630,24 @@ export default function MindMapGraph({
       .attr('font-weight', 500)
       .text(d => d.name.length > 15 ? d.name.slice(0, 12) + '...' : d.name);
 
+    // Redraw the lines touching one node (after a drag or a move from another browser)
+    const updateEdges = (nodeId: number) => {
+      const touches = (edge: any) => edge.source === nodeId || edge.target === nodeId;
+      container.selectAll<SVGLineElement, GraphEdge>('.edges line').filter(touches)
+        .attr('x1', e => ends(e).x1).attr('y1', e => ends(e).y1)
+        .attr('x2', e => ends(e).x2).attr('y2', e => ends(e).y2);
+      container.selectAll<SVGTextElement, GraphEdge>('.edges text').filter(touches)
+        .attr('x', midX).attr('y', midY);
+    };
+    moveNodeRef.current = (id, x, y) => {
+      const n = nodeById.get(id);
+      if (!n || !Number.isFinite(x) || !Number.isFinite(y)) return;
+      n.x = x; n.y = y;
+      nodePositionsRef.current[id] = { x, y };
+      container.select(`#node-group-${id}`).attr('transform', `translate(${x}, ${y})`);
+      updateEdges(id);
+    };
+
     // --------------------------------------------------------
     // DRAG BEHAVIOR
     // --------------------------------------------------------
@@ -595,25 +689,8 @@ export default function MindMapGraph({
             y: d.y,
           });
 
-          // Update connected edges
-          container.selectAll('line')
-            .filter((edge: any) => edge.source === d.id || edge.target === d.id)
-            .attr('x1', (edge: any) => {
-              const source = d3Nodes.find(n => n.id === edge.source);
-              return source?.x || 0;
-            })
-            .attr('y1', (edge: any) => {
-              const source = d3Nodes.find(n => n.id === edge.source);
-              return source?.y || 0;
-            })
-            .attr('x2', (edge: any) => {
-              const target = d3Nodes.find(n => n.id === edge.target);
-              return target?.x || 0;
-            })
-            .attr('y2', (edge: any) => {
-              const target = d3Nodes.find(n => n.id === edge.target);
-              return target?.y || 0;
-            });
+          // Update connected edges (and their labels)
+          updateEdges(d.id);
         }
       })
       .on('end', function(event, d) {
@@ -665,9 +742,12 @@ export default function MindMapGraph({
         const meta = typeof d.metadata === 'string' ? JSON.parse(d.metadata) : d.metadata || {};
         const parentName = meta.parent?.toLowerCase();
         
+        // …and anything joined to it by one of your links
+        const linked = new Set(edges.filter(e => e.kind === 'custom' && (e.source === d.id || e.target === d.id))
+          .map(e => (e.source === d.id ? e.target : e.source)));
         container.selectAll('g[id^="node-group-"]').style('opacity', (n: any) => {
           const nMeta = typeof n.metadata === 'string' ? JSON.parse(n.metadata) : n.metadata || {};
-          if (n.id === d.id) return 1;
+          if (n.id === d.id || linked.has(n.id)) return 1;
           if (parentName && n.name.toLowerCase() === parentName) return 1;
           if (nMeta.parent?.toLowerCase() === d.name.toLowerCase()) return 1;
           return 0.25;
@@ -696,7 +776,7 @@ export default function MindMapGraph({
 
     
 
-  }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges]);
+  }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges, customLinks]);
 
   // ============================================================
   // RENDER

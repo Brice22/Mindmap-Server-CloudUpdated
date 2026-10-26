@@ -37,6 +37,7 @@ export class TrashService {
     const home = await this.db.query('SELECT id FROM node_documents WHERE node_id = $1', [nodeId]);
     const links = await this.db.query('SELECT document_id FROM node_document_links WHERE node_id = $1', [nodeId]);
     const files = await this.db.query('SELECT id FROM files WHERE node_id = $1', [nodeId]);
+    const nodeLinks = await this.db.query('SELECT source_id, target_id, type_id, label FROM node_links WHERE source_id = $1 OR target_id = $1', [nodeId]);
     await this.db.query(
       `INSERT INTO trash (item_type, item_id, title, data) VALUES ('node', $1, $2, $3)`,
       [nodeId, node.name, JSON.stringify({
@@ -44,6 +45,8 @@ export class TrashService {
         homeDocIds: home.rows.map((r: any) => r.id),
         linkedDocIds: links.rows.map((r: any) => r.document_id),
         fileIds: files.rows.map((r: any) => r.id),
+        nodeLinks: nodeLinks.rows,          // 🔗 its links to other nodes
+
       })],
     );
   }
@@ -112,9 +115,20 @@ export class TrashService {
         [row.id, data.linkedDocIds || []],
       );
       await this.db.query(
-        'UPDATE files SET node_id = $1 WHERE id = ANY($2::int[]) AND node_id IS NULL',
+               'UPDATE files SET node_id = $1 WHERE id = ANY($2::int[]) AND node_id IS NULL',
         [row.id, data.fileIds || []],
       );
+      // 🔗 Its links come back (to nodes that still exist; a deleted link type becomes "No type")
+      for (const l of data.nodeLinks || []) {
+        const source = l.source_id === data.node.id ? row.id : l.source_id;
+        const target = l.target_id === data.node.id ? row.id : l.target_id;
+        await this.db.query(
+          `INSERT INTO node_links (source_id, target_id, type_id, label)
+           SELECT $1, $2, (SELECT id FROM link_types WHERE id = $3), $4
+           WHERE EXISTS (SELECT 1 FROM mindmap_nodes WHERE id = $1) AND EXISTS (SELECT 1 FROM mindmap_nodes WHERE id = $2)`,
+          [source, target, l.type_id, l.label || ''],
+        );
+      }
 
             // Its flashcards come back with their review history
       for (const card of data.flashcards || []) {
