@@ -13,6 +13,7 @@ import { MetricsModule } from './metrics/metrics.module';
 import { VpnModule } from './vpn/vpn.module';
 import { PiholeModule } from './pihole/pihole.module';
 import { BackupsModule } from './backups/backups.module';
+import { ServicesModule } from './services/services.module';
 import { AuthModule } from './auth/auth.module';
 
 @Module({
@@ -40,6 +41,7 @@ import { AuthModule } from './auth/auth.module';
     VpnModule,
     PiholeModule,
     BackupsModule,
+    ServicesModule,
     AuthModule,
  ]
 })

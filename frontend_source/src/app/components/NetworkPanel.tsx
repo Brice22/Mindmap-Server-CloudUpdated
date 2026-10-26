@@ -14,10 +14,12 @@ import RegionsPanel from './RegionsPanel';
 import RemoteAccessPanel from './RemoteAccessPanel';
 import PiholePanel from './PiholePanel';
 import BackupsPanel from './BackupsPanel';
+import ServicesPanel from './ServicesPanel';
 
-type ActiveTab = 'vpn' | 'remote' | 'pihole' | 'backups';
+type ActiveTab = 'services' | 'vpn' | 'remote' | 'pihole' | 'backups';
 
 const TABS: { id: ActiveTab; label: string }[] = [
+  { id: 'services', label: '🧰 Services' },
   { id: 'vpn', label: '🌍 Regions' },
   { id: 'remote', label: '🏠 Remote access' },
   { id: 'pihole', label: '🛡️ Ad blocking' },
@@ -25,7 +27,7 @@ const TABS: { id: ActiveTab; label: string }[] = [
 ];
 
 export default function NetworkPanel() {
-  const [activeTab, setActiveTab] = useState<ActiveTab>('vpn');
+  const [activeTab, setActiveTab] = useState<ActiveTab>('services');
 
   // Remember the tab across refreshes
   useEffect(() => {
@@ -58,6 +60,7 @@ export default function NetworkPanel() {
       </div>
 
       <div style={{ flex: 1, overflow: 'auto' }}>
+        {activeTab === 'services' && <ServicesPanel />}
         {activeTab === 'vpn' && <RegionsPanel />}
         {activeTab === 'remote' && <RemoteAccessPanel />}
         {activeTab === 'pihole' && <PiholePanel />}

@@ -101,7 +101,7 @@ export function readSession(req: { headers?: Record<string, any> }): SessionUser
 export const isOwner = (u: SessionUser | null) => !!u?.roles.includes(OWNER);
 
 // What family accounts can't open (owner-only pages)
-const OWNER_ONLY = ['/api/vpn', '/api/pihole', '/api/backups', '/api/mindmap/torrents', '/api/mindmap/regions', '/api/auth/clip-key'];
+const OWNER_ONLY = ['/api/vpn', '/api/pihole', '/api/backups', '/api/services', '/api/mindmap/torrents', '/api/mindmap/regions', '/api/auth/clip-key'];
 
 export function allowed(user: SessionUser | null, method: string, path: string): boolean {
   if (!user) return false;
