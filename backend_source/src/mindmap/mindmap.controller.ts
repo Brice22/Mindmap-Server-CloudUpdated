@@ -146,10 +146,10 @@ async searchNodes(@Query('q') query: string) {
   fetchAllFeeds() { return this.mindmapService.fetchAllFeeds(); }
 
   @Post('news/seed')
-  seedDefaultSources() { return this.mindmapService.seedDefaultSources(); }
+   seedDefaultSources() { return this.mindmapService.seedDefaultSources(); }
 
   @Delete('news/articles/cleanup')
-  cleanupOldArticles() { return this.mindmapService.cleanupOldArticles(7); }
+  cleanupOldArticles() { return this.mindmapService.cleanupOldArticles(); }
 
    // === NODE DOCUMENTS (BlockNote) — shared library ===
   @Get('node/:id/documents')

@@ -308,12 +308,19 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           label TEXT DEFAULT '',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
           CHECK (source_id <> target_id)
-        )`,
+                )`,
         `CREATE INDEX IF NOT EXISTS idx_node_links_source ON node_links(source_id)`,
         `CREATE INDEX IF NOT EXISTS idx_node_links_target ON node_links(target_id)`,
+        // 📰 News: when an article was read (read ones go a day later) and its saved copy (💾 Keep a copy)
+        `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`,
+        `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_path TEXT`,
+        `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_file_id INTEGER`,
+        `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_document_id INTEGER`,
+        `CREATE INDEX IF NOT EXISTS idx_saved_articles_url ON saved_articles(url)`,
       ];
 
       for (const sql of additionalTables) {
+       
         await this.pool.query(sql);
       }
       this.logger.log('✅ All tables ready.');

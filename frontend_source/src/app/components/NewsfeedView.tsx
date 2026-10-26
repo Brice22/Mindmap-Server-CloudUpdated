@@ -1,7 +1,11 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { fileUrl } from '@/lib/files';
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3000';
+
+// 📰 Unread articles stay until you read them (the server fetches every hour, even with the app closed).
+// Read ones leave a day later unless ★ saved, archived, or kept with 💾 (a full copy in your Files library).
 
 
 interface NewsSource {
@@ -25,6 +29,7 @@ interface NewsArticle {
   read: boolean;
   archived: boolean;
   saved: boolean;
+  copy_path?: string | null;     // 💾 the saved copy (in uploads)
 }
 
 const DEFAULT_CATEGORIES = ['All', 'Tech', 'Finance', 'Stocks', 'World', 'US', 'Politics', 'Science', 'Biotech', 'Custom'];
@@ -44,9 +49,11 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
   const [newSourceUrl, setNewSourceUrl] = useState('');
   const [newSourceType, setNewSourceType] = useState<'rss' | 'api'>('rss');
   const [newSourceCategory, setNewSourceCategory] = useState('Custom');
-  const [newSourceApiKey, setNewSourceApiKey] = useState('');
+   const [newSourceApiKey, setNewSourceApiKey] = useState('');
   const [fetching, setFetching] = useState(false);
   const [lastFetch, setLastFetch] = useState('');
+  const [keeping, setKeeping] = useState<string | number | null>(null);          // 💾 copy being downloaded
+  const [keepError, setKeepError] = useState<{ id: string | number; text: string } | null>(null);
 
   // Fetch from enabled sources
   // Load sources and articles from backend on mount
@@ -106,8 +113,23 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
   const toggleSave = (id: string | number) => {
     const article = articles.find(a => a.id === id);
     if (article) updateArticle(id, { saved: !article.saved });
-  };
+   };
   const archive = (id: string | number) => updateArticle(id, { archived: true, read: true });
+
+  // 💾 The server downloads the whole article (readable copy + offline page + pictures) into your library
+  const keepCopy = async (id: string | number) => {
+    setKeeping(id); setKeepError(null);
+    try {
+      const res = await fetch(`${API_URL}/api/mindmap/news/articles/${id}/keep`, { method: 'POST' });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.message || `Failed (${res.status})`);
+      setArticles(prev => prev.map(a => (a.id === id ? { ...a, ...data } : a)));
+    } catch (e: any) {
+      setKeepError({ id, text: `${e.message}. If the site blocks the server or shows a paywall, open it and use 📌 Send to HServer.` });
+    } finally {
+      setKeeping(null);
+    }
+  };
 
  const handleAddSource = async () => {
     if (!newSourceName.trim() || !newSourceUrl.trim()) return;
@@ -211,11 +233,25 @@ export default function NewsfeedView({ onSaveToMindmap }: NewsfeedViewProps) {
                 </div>
                 {article.description && (
                   <div style={{ color: '#888', fontSize: '12px', marginTop: '6px', lineHeight: '1.4' }}>
-                    {article.description.slice(0, 150)}{article.description.length > 150 ? '...' : ''}
+                                       {article.description.slice(0, 150)}{article.description.length > 150 ? '...' : ''}
                   </div>
+                )}
+                {article.copy_path && (
+                  <a href={fileUrl(article.copy_path)} target="_blank" rel="noreferrer" onClick={() => { if (!article.read) markRead(article.id); }}
+                    style={{ display: 'inline-block', marginTop: '6px', color: '#4ade80', fontSize: '12px', textDecoration: 'none' }}>
+                    📄 Open your saved copy
+                  </a>
+                )}
+                {keepError?.id === article.id && (
+                  <div style={{ color: '#f87171', fontSize: '12px', marginTop: '6px' }}>{keepError.text}</div>
                 )}
               </div>
               <div style={{ display: 'flex', gap: '4px', flexShrink: 0 }}>
+                <button onClick={() => keepCopy(article.id)} disabled={!!article.copy_path || keeping === article.id}
+                  title={article.copy_path ? 'Copy saved in your Files library' : 'Keep a copy: download the whole article into your library'}
+                  style={{ background: 'none', border: 'none', cursor: article.copy_path ? 'default' : 'pointer', fontSize: '14px', color: article.copy_path ? '#4ade80' : '#555', opacity: keeping === article.id ? 0.5 : 1 }}>
+                  {keeping === article.id ? '⏳' : article.copy_path ? '✅' : '💾'}
+                </button>
                 <button onClick={() => toggleSave(article.id)} title={article.saved ? 'Unsave' : 'Save'}
                   style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: '16px', color: article.saved ? '#f59e0b' : '#555' }}>
                   {article.saved ? '★' : '☆'}

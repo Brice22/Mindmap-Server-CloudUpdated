@@ -363,10 +363,13 @@ return result.rows[0];
       [data.title, data.description || null, data.url, data.source || null, data.category || null, data.date || null, data.saved || false]
     );
     return result.rows[0];
-  }
+   }
   async updateArticle(id: number, updates: any) {
     const fields: string[] = []; const values: any[] = []; let idx = 1;
-    if (updates.read !== undefined) { fields.push(`read = $${idx++}`); values.push(updates.read); }
+    if (updates.read !== undefined) {
+      fields.push(`read = $${idx++}`); values.push(updates.read);
+      fields.push(updates.read ? 'read_at = COALESCE(read_at, NOW())' : 'read_at = NULL');   // read ones go a day later
+    }
     if (updates.archived !== undefined) { fields.push(`archived = $${idx++}`); values.push(updates.archived); }
     if (updates.saved !== undefined) { fields.push(`saved = $${idx++}`); values.push(updates.saved); }
     if (fields.length === 0) return null;
@@ -476,18 +479,12 @@ return result.rows[0];
         }
       } catch (e: any) {
         this.logger.warn(`Feed fetch failed for ${source.name}: ${e.message}`);
-      }
+          }
     }
 
-    // Buffer cleanup: keep only last 200 non-saved articles per source
-    await this.db.query(`
-      DELETE FROM saved_articles WHERE id IN (
-        SELECT id FROM (
-          SELECT id, ROW_NUMBER() OVER (PARTITION BY source ORDER BY created_at DESC) as rn
-          FROM saved_articles WHERE saved = false AND archived = false
-        ) ranked WHERE rn > 200
-      )
-    `);
+    // Unread articles are never trimmed — they wait until you read them.
+    // Read ones (not ★ saved, archived or copied) leave a day after reading.
+    await this.cleanupOldArticles();
 
     return { fetched: totalFetched, sources: sources.length };
   }
@@ -532,14 +529,18 @@ return result.rows[0];
         'INSERT INTO newsfeed_sources (name, url, type, category, enabled) VALUES ($1, $2, $3, $4, true)',
         [src.name, src.url, src.type, src.category]
       );
-    }
+       }
     this.logger.log(`Seeded ${defaults.length} default news sources`);
   }
-  async cleanupOldArticles(daysOld: number = 7) {
-    await this.db.query(
-      `DELETE FROM saved_articles WHERE saved = false AND archived = false AND created_at < NOW() - INTERVAL '${daysOld} days'`
+  // Removes articles you've READ more than a day ago, unless they're ★ saved, archived or have a saved copy.
+  // Unread articles are never removed.
+  async cleanupOldArticles() {
+    const res = await this.db.query(
+      `DELETE FROM saved_articles
+       WHERE read = true AND saved = false AND archived = false AND copy_path IS NULL
+         AND COALESCE(read_at, created_at) < NOW() - INTERVAL '1 day'`
     );
-    return { success: true };
+    return { success: true, removed: res.rowCount || 0 };
   }
 
   async updateNewsSource(id: number, updates: any) {
