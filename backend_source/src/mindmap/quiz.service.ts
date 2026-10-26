@@ -1,0 +1,175 @@
+// ============================================================
+// 🧪 QUESTION GENERATOR - questions, answers, and what they show
+// ============================================================
+// Questions live in the "flashcards" table (so spaced repetition,
+// decks and the cards written in Docs all keep working), with:
+//   kind       recall | numeric | explain | choice
+//   lle_level  1 Meaning · 2 Procedure · 3 Connection · 4 Judgment · 5 Creation
+//   lle_rep    verbal · graphical · concrete · symbolic · procedural · structural · intuitive
+//   spec       format details:
+//                numeric  { variables: [{name,min,max,step,decimals,unit,values,expr}],
+//                           formula, tolerancePct, unit }
+//                choice   { choices: [{text, correct, why}] }
+//                explain  { checklist: ["…", "…"] }
+//   solution   worked solution shown after answering (numeric: {m}, {answer} filled in)
+// Numbers are made and checked in the browser (frontend lib/quizMath.ts).
+//
+// quiz_reviews     every answer: rating, right/wrong, and — when missed —
+//                  which mechanism failed (meaning / procedure / connection /
+//                  judgment / creation / slip). Feeds the LLE chart.
+// quiz_reflections Level-4 synthesis answers from the end of sessions.
+// ============================================================
+
+import { Injectable, Inject, BadRequestException, NotFoundException } from '@nestjs/common';
+import { DatabaseService } from '../database/database.service';
+
+export const KINDS = ['recall', 'numeric', 'explain', 'choice'];
+export const REPS = ['verbal', 'graphical', 'concrete', 'symbolic', 'procedural', 'structural', 'intuitive'];
+export const MECHANISMS = ['meaning', 'procedure', 'connection', 'judgment', 'creation', 'slip'];
+
+const today = () => {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+};
+const toId = (v: any) => { const n = Number(v); return Number.isInteger(n) && n > 0 ? n : null; };
+
+@Injectable()
+export class QuizService {
+  constructor(@Inject(DatabaseService) private readonly db: DatabaseService) {}
+
+  // Check and tidy what the editor sent
+  private clean(b: any, partial: boolean) {
+    const out: Record<string, any> = {};
+    if (b.kind !== undefined || !partial) {
+      const kind = String(b.kind || 'recall');
+      if (!KINDS.includes(kind)) throw new BadRequestException(`Format must be one of: ${KINDS.join(', ')}`);
+      out.kind = kind;
+    }
+    if (b.question !== undefined || !partial) {
+      const q = String(b.question ?? '').trim();
+      if (!q) throw new BadRequestException('Write the question');
+      out.question = q.slice(0, 5000);
+    }
+    if (b.answer !== undefined || !partial) {
+      const a = String(b.answer ?? '').trim();
+      if (!a) throw new BadRequestException('Write the answer (for numeric questions: the formula)');
+      out.answer = a.slice(0, 10000);
+    }
+    if (b.lleLevel !== undefined) {
+      const l = b.lleLevel == null || b.lleLevel === '' ? null : Number(b.lleLevel);
+      if (l !== null && !(Number.isInteger(l) && l >= 1 && l <= 5)) throw new BadRequestException('LLE level is 1–5');
+      out.lle_level = l;
+    }
+    if (b.lleRep !== undefined) {
+      const r = b.lleRep == null || b.lleRep === '' ? null : String(b.lleRep);
+      if (r !== null && !REPS.includes(r)) throw new BadRequestException(`Representation must be one of: ${REPS.join(', ')}`);
+      out.lle_rep = r;
+    }
+    if (b.spec !== undefined) {
+      const spec = b.spec && typeof b.spec === 'object' ? b.spec : {};
+      const kind = out.kind ?? b.kind;
+      if (kind === 'numeric') {
+        if (!Array.isArray(spec.variables)) throw new BadRequestException('Numeric questions need their variables');
+        if (!String(spec.formula || '').trim()) throw new BadRequestException('Numeric questions need the answer formula');
+      }
+      if (kind === 'choice') {
+        const choices = Array.isArray(spec.choices) ? spec.choices.filter((c: any) => String(c?.text || '').trim()) : [];
+        if (choices.length < 2) throw new BadRequestException('Give at least two choices');
+        if (!choices.some((c: any) => c.correct)) throw new BadRequestException('Mark the correct choice');
+        spec.choices = choices;
+      }
+      out.spec = JSON.stringify(spec);
+    }
+    if (b.solution !== undefined) out.solution = b.solution ? String(b.solution).slice(0, 10000) : null;
+    if (b.difficulty !== undefined) out.difficulty = ['easy', 'medium', 'hard'].includes(b.difficulty) ? b.difficulty : 'medium';
+    if (b.nodeId !== undefined) out.node_id = toId(b.nodeId);
+    if (b.nodeName !== undefined) out.node_name = b.nodeName ? String(b.nodeName) : null;
+    return out;
+  }
+
+  async createQuestion(b: any) {
+    const f = this.clean(b, false);
+    f.next_review = today();
+    const keys = Object.keys(f);
+    const res = await this.db.query(
+      `INSERT INTO flashcards (${keys.join(', ')}) VALUES (${keys.map((_, i) => (keys[i] === 'spec' ? `$${i + 1}::jsonb` : `$${i + 1}`)).join(', ')}) RETURNING *`,
+      keys.map(k => f[k]),
+    );
+    return res.rows[0];
+  }
+
+  async updateQuestion(id: number, b: any) {
+    const card = (await this.db.query('SELECT id, document_id FROM flashcards WHERE id = $1', [id])).rows[0];
+    if (!card) throw new NotFoundException('No such question');
+    const f = this.clean(b, true);
+    // Cards written in a Doc keep their text from the Doc (edit them there); their format and LLE tag can change here
+    if (card.document_id != null) { delete f.question; delete f.answer; delete f.node_id; delete f.node_name; }
+    const keys = Object.keys(f);
+    if (!keys.length) throw new BadRequestException('Nothing to change');
+    const res = await this.db.query(
+      `UPDATE flashcards SET ${keys.map((k, i) => `${k} = $${i + 2}${k === 'spec' ? '::jsonb' : ''}`).join(', ')} WHERE id = $1 RETURNING *`,
+      [id, ...keys.map(k => f[k])],
+    );
+    return res.rows[0];
+  }
+
+  // ------------------------------------------------------------
+  async logReview(b: any) {
+    const cardId = toId(b.cardId);
+    if (!cardId) throw new BadRequestException('Which question?');
+    const card = (await this.db.query('SELECT id, node_id, lle_level, lle_rep FROM flashcards WHERE id = $1', [cardId])).rows[0];
+    if (!card) throw new NotFoundException('No such question');
+    const mechanism = b.mechanism && MECHANISMS.includes(b.mechanism) ? b.mechanism : null;
+    const rating = Number(b.rating);
+    await this.db.query(
+      `INSERT INTO quiz_reviews (card_id, node_id, rating, correct, mechanism, lle_level, lle_rep, seconds, response)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      [cardId, card.node_id, rating >= 1 && rating <= 4 ? rating : null,
+       typeof b.correct === 'boolean' ? b.correct : rating >= 3,
+       mechanism, card.lle_level, card.lle_rep,
+       Number.isFinite(Number(b.seconds)) ? Math.round(Number(b.seconds)) : null,
+       b.response ? String(b.response).slice(0, 5000) : null],
+    );
+    return { success: true };
+  }
+
+  // ------------------------------------------------------------
+  // LLE CHART for some nodes: questions per cell, accuracy per cell, what fails
+  async coverage(nodeIdsRaw: string | undefined, days = 90) {
+    const ids = String(nodeIdsRaw || '').split(',').map(toId).filter((n): n is number => !!n);
+    const where = ids.length ? 'node_id = ANY($1::int[])' : 'TRUE';
+    const params = ids.length ? [ids] : [];
+    const [cells, acc, mech, untagged] = await Promise.all([
+      this.db.query(`SELECT lle_level AS level, lle_rep AS rep, kind, COUNT(*)::int AS n FROM flashcards
+                     WHERE ${where} AND lle_level IS NOT NULL GROUP BY 1, 2, 3`, params),
+      this.db.query(`SELECT lle_level AS level, lle_rep AS rep, COUNT(*)::int AS answered, SUM(CASE WHEN correct THEN 1 ELSE 0 END)::int AS right
+                     FROM quiz_reviews WHERE ${where} AND lle_level IS NOT NULL AND reviewed_at > NOW() - INTERVAL '${days} days'
+                     GROUP BY 1, 2`, params),
+      this.db.query(`SELECT mechanism, COUNT(*)::int AS n FROM quiz_reviews
+                     WHERE ${where} AND mechanism IS NOT NULL AND reviewed_at > NOW() - INTERVAL '30 days'
+                     GROUP BY 1 ORDER BY 2 DESC`, params),
+      this.db.query(`SELECT COUNT(*)::int AS n FROM flashcards WHERE ${where} AND lle_level IS NULL`, params),
+    ]);
+    return { cells: cells.rows, accuracy: acc.rows, mechanisms: mech.rows, untagged: untagged.rows[0]?.n || 0 };
+  }
+
+  // ------------------------------------------------------------
+  async saveReflection(b: any) {
+    const prompt = String(b.prompt || '').trim(), response = String(b.response || '').trim();
+    if (!prompt || !response) throw new BadRequestException('Write your answer first');
+    const nodeIds = (Array.isArray(b.nodeIds) ? b.nodeIds : []).map(toId).filter((n: any) => n);
+    const res = await this.db.query(
+      'INSERT INTO quiz_reflections (node_ids, prompt, response) VALUES ($1::int[], $2, $3) RETURNING *',
+      [nodeIds, prompt.slice(0, 2000), response.slice(0, 20000)],
+    );
+    return res.rows[0];
+  }
+
+  async reflections(nodeId?: any) {
+    const id = toId(nodeId);
+    const res = id
+      ? await this.db.query('SELECT * FROM quiz_reflections WHERE $1 = ANY(node_ids) ORDER BY created_at DESC LIMIT 50', [id])
+      : await this.db.query('SELECT * FROM quiz_reflections ORDER BY created_at DESC LIMIT 50');
+    return res.rows;
+  }
+}

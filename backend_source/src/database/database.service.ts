@@ -314,9 +314,38 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         // 📰 News: when an article was read (read ones go a day later) and its saved copy (💾 Keep a copy)
         `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS read_at TIMESTAMP`,
         `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_path TEXT`,
-        `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_file_id INTEGER`,
+                `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_file_id INTEGER`,
         `ALTER TABLE saved_articles ADD COLUMN IF NOT EXISTS copy_document_id INTEGER`,
         `CREATE INDEX IF NOT EXISTS idx_saved_articles_url ON saved_articles(url)`,
+        // 🧪 Question generator: each question's format, LLE cell (level × representation) and format details
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS kind TEXT NOT NULL DEFAULT 'recall'`,
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS lle_level SMALLINT`,
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS lle_rep TEXT`,
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS spec JSONB NOT NULL DEFAULT '{}'::jsonb`,
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS solution TEXT`,
+        // Every answer you give: right/wrong, how you rated it, and — when you missed — which mechanism failed
+        `CREATE TABLE IF NOT EXISTS quiz_reviews (
+          id SERIAL PRIMARY KEY,
+          card_id INTEGER REFERENCES flashcards(id) ON DELETE CASCADE,
+          node_id INTEGER,
+          reviewed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+          rating SMALLINT,
+          correct BOOLEAN,
+          mechanism TEXT,
+          lle_level SMALLINT,
+          lle_rep TEXT,
+          seconds INTEGER,
+          response TEXT
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_quiz_reviews_node ON quiz_reviews(node_id, reviewed_at)`,
+        // Level-4 synthesis answers written at the end of a session
+        `CREATE TABLE IF NOT EXISTS quiz_reflections (
+          id SERIAL PRIMARY KEY,
+          node_ids INTEGER[] NOT NULL DEFAULT '{}',
+          prompt TEXT NOT NULL,
+          response TEXT NOT NULL,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
       ];
 
       for (const sql of additionalTables) {

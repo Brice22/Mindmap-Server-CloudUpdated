@@ -16,6 +16,11 @@
 import React, { useState, useEffect, useCallback, useMemo } from 'react';
 import type { Node } from '@/lib/types';
 import MathText from '@/lib/MathText';
+import { MECHANISMS, KIND_INFO, cellLabel } from '@/lib/lle';
+import QuestionEditor, { type QuizQuestion } from './quiz/QuestionEditor';
+import QuestionRunner, { type RevealInfo } from './quiz/QuestionRunner';
+import LleChart from './quiz/LleChart';
+import SynthesisBox from './quiz/SynthesisBox';
 
 interface Flashcard {
   id: string;
@@ -32,12 +37,21 @@ interface Flashcard {
   lastReview: string;
   documentId: number | null;     // written in this doc (edit it there)
   documentTitle: string | null;
+  // Question generator
+  kind: 'recall' | 'numeric' | 'explain' | 'choice';
+  lleLevel: number | null;
+  lleRep: string | null;
+  spec: any;
+  solution: string | null;
 }
 
 interface QuizSession {
   cards: Flashcard[];
   currentIndex: number;
   showAnswer: boolean;
+  reveal: RevealInfo | null;          // right/wrong + suggested rating once the answer is shown
+  askMechanism: number | null;        // rating given; waiting for "what failed?"
+  shownAt: number; 
   results: { cardId: string; rating: number }[];
   startTime: number;
   title: string;
@@ -68,17 +82,14 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
   const [loaded, setLoaded] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('deck');
   const [session, setSession] = useState<QuizSession | null>(null);
-  const [showCreateForm, setShowCreateForm] = useState(false);
   const [deckId, setDeckId] = useState<number | null>(focusNodeId ?? null);   // selected deck (node)
   const [withSubNodes, setWithSubNodes] = useState(true);
   const [search, setSearch] = useState('');
 
-  // Create form state
-  const [newQuestion, setNewQuestion] = useState('');
-  const [newAnswer, setNewAnswer] = useState('');
-  const [newDifficulty, setNewDifficulty] = useState<Flashcard['difficulty']>('medium');
-  const [selectedNodeId, setSelectedNodeId] = useState<number | null>(null);
-  const [nodeSearch, setNodeSearch] = useState('');
+  // Question editor (new / edit) and the LLE chart
+  const [editing, setEditing] = useState<{ card?: Flashcard; preset?: { nodeId?: number | null; lleLevel?: number | null; lleRep?: string | null } } | null>(null);
+  const [showChart, setShowChart] = useState(() => { try { return localStorage.getItem('hserver:lleChart') === '1'; } catch { return false; } });
+  const [chartRefresh, setChartRefresh] = useState(0);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -96,7 +107,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           easeFactor: parseFloat(c.ease_factor) || 2.5, nextReview: c.next_review || '',
           reviewCount: c.review_count || 0, lastReview: c.last_review || '',
           documentId: c.document_id ?? null, documentTitle: c.document_title ?? null,
+          kind: c.kind || 'recall', lleLevel: c.lle_level ?? null, lleRep: c.lle_rep ?? null,
+          spec: c.spec || {}, solution: c.solution ?? null,
         })));
+        setChartRefresh(n => n + 1);
       }
     } catch {}
     setLoaded(true);
@@ -167,12 +181,9 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
       .filter(d => d.node)
       .sort((a, b) => b.due - a.due || a.node!.name.localeCompare(b.node!.name));
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [cards, nodes, today]);
+   }, [cards, nodes, today]);
 
   const quizNodes = nodes.filter(n => metaOf(n).quizEnabled);
-  const filteredNodes = nodeSearch
-    ? nodes.filter(n => n.name.toLowerCase().includes(nodeSearch.toLowerCase())).slice(0, 15)
-    : quizNodes.slice(0, 15);
 
   const listed = search.trim()
     ? inDeck.filter(c => `${c.question} ${c.answer} ${c.nodeName}`.toLowerCase().includes(search.trim().toLowerCase()))
@@ -217,19 +228,7 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
     });
     if (!res.ok) throw new Error(String(res.status));
-    return res.json();
-  };
-
-  const handleCreateCard = async () => {
-    if (!newQuestion.trim() || !newAnswer.trim()) return;
-    const node = selectedNodeId ? nodes.find(n => n.id === selectedNodeId) : null;
-    try {
-      await saveCard({ question: newQuestion.trim(), answer: newAnswer.trim(), nodeId: node?.id ?? null, nodeName: node?.name || 'Unlinked', difficulty: newDifficulty });
-      await load();
-    } catch {
-      setMessage('Could not save the card — is the backend running?');
-    }
-    setNewQuestion(''); setNewAnswer(''); setSelectedNodeId(null); setNodeSearch(''); setShowCreateForm(false);
+       return res.json();
   };
 
   // Parse "Q: ... A: ..." format from AI
@@ -267,30 +266,53 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
   // --------------------------------------------------------
   // REVIEW
   // --------------------------------------------------------
-  const startQuiz = (cardSet: Flashcard[], title: string) => {
+   const startQuiz = (cardSet: Flashcard[], title: string) => {
     if (cardSet.length === 0) return;
     const shuffled = [...cardSet].sort(() => Math.random() - 0.5);
-    setSession({ cards: shuffled, currentIndex: 0, showAnswer: false, results: [], startTime: Date.now(), title });
+    setSession({ cards: shuffled, currentIndex: 0, showAnswer: false, reveal: null, askMechanism: null, shownAt: Date.now(), results: [], startTime: Date.now(), title });
     setViewMode('quiz');
   };
 
-  const rateCard = useCallback(async (rating: number) => {
+  // Log the answer (rating, right/wrong, what failed) and go to the next question
+  const finishCard = useCallback((rating: number, mechanism: string | null) => {
     if (!session) return;
+    const card = session.cards[session.currentIndex];
+    fetch(`${apiUrl}/api/mindmap/quiz/reviews`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        cardId: card.id, rating, mechanism,
+        correct: session.reveal?.correct ?? rating >= 3,
+        seconds: Math.round((Date.now() - session.shownAt) / 1000),
+        response: session.reveal?.response || null,
+      }),
+    }).catch(() => {});
+    const results = [...session.results, { cardId: card.id, rating }];
+    const next = { showAnswer: false, reveal: null, askMechanism: null, shownAt: Date.now(), results };
+    if (session.currentIndex + 1 < session.cards.length) {
+      setSession({ ...session, ...next, currentIndex: session.currentIndex + 1 });
+    } else {
+      setSession({ ...session, ...next });
+      setViewMode('stats');
+      setChartRefresh(n => n + 1);
+    }
+  }, [session, apiUrl]);
+
+  const rateCard = useCallback(async (rating: number) => {
+    if (!session || session.askMechanism != null) return;
     const card = session.cards[session.currentIndex];
     const updates = calculateNextReview(card, rating);
     fetch(`${apiUrl}/api/mindmap/flashcards/${card.id}`, {
       method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(updates),
     }).catch(() => {});
     setCards(prev => prev.map(c => (c.id === card.id ? { ...c, ...updates } : c)));
-    const results = [...session.results, { cardId: card.id, rating }];
-    if (session.currentIndex + 1 < session.cards.length) {
-      setSession({ ...session, currentIndex: session.currentIndex + 1, showAnswer: false, results });
-    } else {
-      setSession({ ...session, results, showAnswer: false });
-      setViewMode('stats');
+    // A miss: ask what failed before moving on
+    if (rating === 1 || session.reveal?.correct === false) {
+      setSession({ ...session, askMechanism: rating });
+      return;
     }
+    finishCard(rating, null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, apiUrl]);
+  }, [session, apiUrl, finishCard]);
 
   // Keyboard while reviewing
   useEffect(() => {
@@ -298,12 +320,17 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     const onKey = (e: KeyboardEvent) => {
       if ((e.target as HTMLElement)?.closest?.('input, textarea')) return;
       if (e.key === 'Escape') { setViewMode('deck'); setSession(null); return; }
-      if (!session.showAnswer && (e.key === ' ' || e.key === 'Enter')) { e.preventDefault(); setSession({ ...session, showAnswer: true }); return; }
+      if (session.askMechanism != null) {
+        const i = Number(e.key) - 1;
+        if (i >= 0 && i < MECHANISMS.length) { e.preventDefault(); finishCard(session.askMechanism, MECHANISMS[i].key); }
+        else if (e.key === 'Enter') { e.preventDefault(); finishCard(session.askMechanism, null); }
+        return;
+      }
       if (session.showAnswer && ['1', '2', '3', '4'].includes(e.key)) { e.preventDefault(); rateCard(Number(e.key)); }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [viewMode, session, rateCard]);
+  }, [viewMode, session, rateCard, finishCard]);
 
   const getStats = () => {
     if (!session) return null;
@@ -334,8 +361,8 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           {viewMode !== 'deck' && (
             <button onClick={() => { setViewMode('deck'); setSession(null); }} style={{ ...btn, background: '#333', color: '#ccc' }}>← Back to Deck</button>
           )}
-          <button onClick={() => { setSelectedNodeId(deckId); setNodeSearch(deckNode?.name || ''); setShowCreateForm(true); }}
-            style={{ ...btn, background: '#0070f3', color: '#fff' }}>+ Create Card</button>
+          <button onClick={() => setEditing({ preset: { nodeId: deckId } })}
+            style={{ ...btn, background: '#0070f3', color: '#fff' }}>+ New question</button>
         </div>
       </div>
 
@@ -416,8 +443,20 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                   </div>
                 ))}
               </div>
-            </div>
+                       </div>
           )}
+
+          {/* 🧩 LLE chart for this deck */}
+          <div style={{ marginBottom: 24 }}>
+            <h3 onClick={() => setShowChart(v => { try { localStorage.setItem('hserver:lleChart', v ? '0' : '1'); } catch {} return !v; })}
+              style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12, cursor: 'pointer' }}>
+              {showChart ? '▾' : '▸'} 🧩 LLE chart — {deckTitle}
+            </h3>
+            {showChart && (
+              <LleChart apiUrl={apiUrl} nodeIds={deckId != null ? Array.from(deckNodeIds(deckId)) : null} refreshKey={chartRefresh}
+                onCell={(lleLevel, lleRep) => setEditing({ preset: { nodeId: deckId, lleLevel, lleRep } })} />
+            )}
+          </div>
 
           {/* AI generation (needs MindsDB) */}
           {deckId == null && quizNodes.length > 0 && (
@@ -449,17 +488,23 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
               <div key={card.id} style={{ display: 'flex', alignItems: 'center', padding: '10px 16px', borderBottom: '1px solid #333', gap: 12 }}>
                 <div title={isDue(card) ? 'Due' : `Next review ${card.nextReview}`} style={{
                   width: 8, height: 8, borderRadius: '50%', flexShrink: 0,
-                  background: card.interval >= 21 ? '#22c55e' : card.interval >= 7 ? '#f59e0b' : '#ef4444',
+                                   background: card.interval >= 21 ? '#22c55e' : card.interval >= 7 ? '#f59e0b' : '#ef4444',
                 }} />
                 <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={{ color: '#fff', fontSize: 13 }}><MathText text={card.question} /></div>
+                  <div style={{ color: '#fff', fontSize: 13 }}>
+                    <span title={KIND_INFO[card.kind]?.name} style={{ marginRight: 6 }}>{KIND_INFO[card.kind]?.icon}</span>
+                    <MathText text={card.question} />
+                  </div>
                   <div style={{ color: '#666', fontSize: 11 }}>
+                    {card.lleLevel || card.lleRep ? <span style={{ color: '#a78bfa' }}>{cellLabel(card.lleLevel, card.lleRep)} · </span> : null}
                     {card.nodeName}
                     {card.documentId != null && <> · 📄 {card.documentTitle || 'doc'}</>}
                     {' · '}{isDue(card) ? <span style={{ color: '#f59e0b' }}>due</span> : `next ${card.nextReview}`}
                     {' · '}reviews {card.reviewCount}
                   </div>
                 </div>
+                <button onClick={() => setEditing({ card })} title={card.documentId != null ? 'Set format / LLE cell (text is edited in the doc)' : 'Edit'}
+                  style={{ background: 'none', border: 'none', color: '#777', cursor: 'pointer' }}>✎</button>
                 {card.documentId != null ? (
                   <span title="Written in a doc — edit or delete it there" style={{ color: '#555', fontSize: 11 }}>in doc</span>
                 ) : (
@@ -475,9 +520,9 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
         </div>
       )}
 
-      {/* QUIZ VIEW */}
+            {/* QUIZ VIEW */}
       {current && session && (
-        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', overflow: 'auto' }}>
+        <div style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-start', overflow: 'auto', paddingTop: 16, paddingBottom: 24 }}>
           <div style={{ width: '100%', maxWidth: 640, marginBottom: 20 }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', color: '#888', fontSize: 12, marginBottom: 6 }}>
               <span>{session.title} · card {session.currentIndex + 1} of {session.cards.length}</span>
@@ -485,46 +530,51 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
             </div>
             <div style={{ height: 4, background: '#333', borderRadius: 2 }}>
               <div style={{ height: '100%', borderRadius: 2, background: '#0070f3', width: `${((session.currentIndex + 1) / session.cards.length) * 100}%`, transition: 'width 0.3s' }} />
-            </div>
+                      </div>
           </div>
 
-          <div style={{
-            width: '100%', maxWidth: 640, minHeight: 280, background: '#2a2a3a', borderRadius: 12, padding: 36,
-            display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', textAlign: 'center', border: '1px solid #444',
-          }}>
-            <div style={{ color: '#888', fontSize: 12, marginBottom: 16, textTransform: 'uppercase' }}>Question</div>
-            <div style={{ color: '#fff', fontSize: 20, lineHeight: 1.5 }}><MathText text={current.question} /></div>
-            {session.showAnswer && (
-              <>
-                <div style={{ width: '60%', borderTop: '1px solid #444', margin: '24px 0 16px' }} />
-                <div style={{ color: '#888', fontSize: 12, marginBottom: 12, textTransform: 'uppercase' }}>Answer</div>
-                <div style={{ color: '#c4b5fd', fontSize: 19, lineHeight: 1.5 }}><MathText text={current.answer} /></div>
-                {currentNode && (
-                  <button onClick={() => onOpenNode(currentNode)} style={{ ...btn, marginTop: 16, padding: '4px 10px', fontSize: 11, background: '#333', color: '#aaa' }}>
-                    Show {currentNode.name} on the graph
-                  </button>
-                )}
-              </>
-            )}
-          </div>
+          <QuestionRunner q={current as unknown as QuizQuestion} revealed={session.showAnswer}
+            onReveal={info => setSession(s => (s ? { ...s, showAnswer: true, reveal: info } : s))} />
 
-          {!session.showAnswer ? (
-            <button onClick={() => setSession({ ...session, showAnswer: true })}
-              style={{ ...btn, marginTop: 24, background: '#0070f3', color: '#fff', padding: '14px 48px', fontSize: 16 }}>
-              Show Answer <span style={{ opacity: 0.6, fontSize: 12 }}>(Space)</span>
+          {session.showAnswer && currentNode && (
+            <button onClick={() => onOpenNode(currentNode)} style={{ ...btn, marginTop: 12, padding: '4px 10px', fontSize: 11, background: '#333', color: '#aaa' }}>
+              Show {currentNode.name} on the graph
             </button>
-          ) : (
-            <div style={{ marginTop: 24, display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
+          )}
+
+          {session.showAnswer && session.askMechanism == null && (
+            <div style={{ marginTop: 20, display: 'flex', gap: 12, flexWrap: 'wrap', justifyContent: 'center' }}>
               {[
                 { r: 1, label: '😞 Forgot', bg: '#ef4444', fg: '#fff' },
                 { r: 2, label: '😐 Hard', bg: '#f59e0b', fg: '#000' },
                 { r: 3, label: '😊 Good', bg: '#22c55e', fg: '#fff' },
                 { r: 4, label: '🤩 Easy', bg: '#3b82f6', fg: '#fff' },
               ].map(b => (
-                <button key={b.r} onClick={() => rateCard(b.r)} style={{ ...btn, background: b.bg, color: b.fg, padding: '12px 24px', fontSize: 14 }}>
+                <button key={b.r} onClick={() => rateCard(b.r)}
+                  style={{ ...btn, background: b.bg, color: b.fg, padding: '12px 24px', fontSize: 14,
+                    outline: session.reveal?.suggested === b.r ? '3px solid #fff' : 'none', outlineOffset: 2 }}
+                  title={session.reveal?.suggested === b.r ? 'Suggested from your answer' : undefined}>
                   {b.label} <span style={{ opacity: 0.6, fontSize: 11 }}>{b.r}</span>
                 </button>
               ))}
+            </div>
+          )}
+
+          {/* After a miss: which mechanism failed? */}
+          {session.askMechanism != null && (
+            <div style={{ marginTop: 20, width: '100%', maxWidth: 680 }}>
+              <div style={{ color: '#fff', textAlign: 'center', marginBottom: 10 }}>What failed? <span style={{ color: '#888', fontSize: 12 }}>(keys 1–6 · Enter to skip)</span></div>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(190px, 1fr))', gap: 8 }}>
+                {MECHANISMS.map((m, i) => (
+                  <button key={m.key} onClick={() => finishCard(session.askMechanism!, m.key)}
+                    style={{ ...btn, background: '#2a2a3a', color: '#ddd', border: `1px solid ${current.lleLevel === i + 1 ? '#a78bfa' : '#444'}`, textAlign: 'left', padding: '10px 12px' }}>
+                    <b>{i + 1}. {m.label}</b><div style={{ color: '#888', fontSize: 11, marginTop: 2 }}>{m.hint}</div>
+                  </button>
+                ))}
+              </div>
+              <div style={{ textAlign: 'center', marginTop: 10 }}>
+                <button onClick={() => finishCard(session.askMechanism!, null)} style={{ ...btn, background: 'none', color: '#888' }}>Skip</button>
+              </div>
             </div>
           )}
         </div>
@@ -554,63 +604,27 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                 <div style={{ color: '#888', fontSize: 12 }}>Time</div>
                 <div style={{ color: '#8b5cf6', fontSize: 32, fontWeight: 'bold' }}>
                   {stats.duration > 60 ? `${Math.floor(stats.duration / 60)}m ${stats.duration % 60}s` : `${stats.duration}s`}
-                </div>
+                              </div>
               </div>
             </div>
+            <SynthesisBox apiUrl={apiUrl} nodes={nodes}
+              studiedNodeIds={session.cards.map(c => c.nodeId).filter((id): id is number => id != null)} />
             <div style={{ display: 'flex', gap: 12 }}>
               <button onClick={() => { setViewMode('deck'); setSession(null); }} style={{ ...btn, background: '#333', color: '#ccc', padding: '12px 24px' }}>Back to deck</button>
               <button onClick={() => startQuiz(dueCards, `${deckTitle} — due`)} disabled={!dueCards.length}
                 style={{ ...btn, background: '#0070f3', color: '#fff', padding: '12px 24px' }}>Review more ({dueCards.length} due)</button>
             </div>
           </div>
-        );
+               );
       })()}
 
-      {/* CREATE CARD MODAL */}
-      {showCreateForm && (
-        <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}
-          onClick={() => setShowCreateForm(false)}>
-          <div style={{ background: '#2a2a3a', padding: 24, borderRadius: 8, width: 500, maxWidth: '92vw', maxHeight: '80vh', overflow: 'auto', border: '1px solid #444' }}
-            onClick={e => e.stopPropagation()}>
-            <h3 style={{ color: '#fff', marginTop: 0 }}>Create flashcard</h3>
-            <div style={{ color: '#777', fontSize: 12, marginBottom: 10 }}>Tip: cards written in a node&apos;s Docs (/flashcard or “term :: definition”) stay next to your notes. Use $...$ for math.</div>
-            <textarea value={newQuestion} onChange={e => setNewQuestion(e.target.value)} placeholder="Question" rows={3}
-              style={{ width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: 8, borderRadius: 4, marginBottom: 8, resize: 'vertical' }} />
-            <textarea value={newAnswer} onChange={e => setNewAnswer(e.target.value)} placeholder="Answer" rows={3}
-              style={{ width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: 8, borderRadius: 4, marginBottom: 8, resize: 'vertical' }} />
-
-            <div style={{ display: 'flex', gap: 8, marginBottom: 12 }}>
-              {(['easy', 'medium', 'hard'] as const).map(d => (
-                <button key={d} onClick={() => setNewDifficulty(d)}
-                  style={{ flex: 1, padding: 8, borderRadius: 4, border: 'none', cursor: 'pointer', textTransform: 'capitalize', color: '#fff',
-                    background: newDifficulty === d ? (d === 'easy' ? '#22c55e' : d === 'hard' ? '#ef4444' : '#f59e0b') : '#333' }}>
-                  {d}
-                </button>
-              ))}
-            </div>
-
-            <div style={{ marginBottom: 16 }}>
-              <div style={{ color: '#888', fontSize: 12, marginBottom: 6 }}>Node (its deck)</div>
-              <input value={nodeSearch} onChange={e => { setNodeSearch(e.target.value); setSelectedNodeId(null); }} placeholder="Search nodes..."
-                style={{ width: '100%', background: '#1e1e2e', color: '#fff', border: '1px solid #444', padding: 8, borderRadius: 4, marginBottom: 4 }} />
-              {filteredNodes.length > 0 && nodeSearch && selectedNodeId == null && (
-                <div style={{ maxHeight: 120, overflow: 'auto', background: '#1e1e2e', border: '1px solid #444', borderRadius: 4 }}>
-                  {filteredNodes.map(n => (
-                    <div key={n.id} onClick={() => { setSelectedNodeId(n.id); setNodeSearch(n.name); }}
-                      style={{ padding: '6px 10px', cursor: 'pointer', fontSize: 13, color: '#ccc' }}>
-                      {n.name}
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div style={{ display: 'flex', gap: 8, justifyContent: 'flex-end' }}>
-              <button onClick={() => setShowCreateForm(false)} style={{ ...btn, background: '#333', color: '#ccc' }}>Cancel</button>
-              <button onClick={handleCreateCard} style={{ ...btn, background: '#0070f3', color: '#fff' }}>Create</button>
-            </div>
-          </div>
-        </div>
+      {/* NEW / EDIT QUESTION */}
+      {editing && (
+        <QuestionEditor apiUrl={apiUrl} nodes={nodes}
+          existing={editing.card ? (editing.card as unknown as QuizQuestion) : null}
+          preset={editing.preset}
+          onClose={() => setEditing(null)}
+          onSaved={load} />
       )}
     </div>
   );
