@@ -122,7 +122,7 @@ interface MindMapGraphProps {
   customLinks?: GraphLink[];          // 🔗 your own links (colour/dash/arrow from their link type)
   onLinksChanged?: () => void;        // another browser changed links → reload them
   // 🧭 Graph tools answer: these nodes/lines stay bright, the rest dims; badges = small labels above nodes
-  highlight?: { nodes: number[]; edges: { from: number; to: number }[]; badges?: Record<number, string> } | null;
+  highlight?: { nodes: number[]; edges: { from: number; to: number }[]; badges?: Record<number, string>; fitKey?: string } | null;
 }
 
 // One line on the graph: to a parent, a backlink (auto), or one of your links
@@ -174,9 +174,10 @@ export default function MindMapGraph({
   const callbacksRef = useRef({ onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged });
   useEffect(() => {
     callbacksRef.current = { onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged };
-  }, [onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged]);
+    }, [onNodeClick, onNodeDoubleClick, onNodeContextMenu, onLinksChanged]);
   // Moves a node and its lines (set by the drawing code; used for moves from other browsers)
   const moveNodeRef = useRef<((id: number, x: number, y: number) => void) | null>(null);
+  const lastFitRef = useRef<string | null>(null);   // 🧭 last answer zoomed into view
 
   // ============================================================
   // WEBSOCKET CONNECTION
@@ -647,9 +648,23 @@ export default function MindMapGraph({
       const badge = badged.append('g')
         .attr('transform', (d: any) => { const r = nodeRadius(metaOf(d)); return `translate(${r * 0.75}, ${-r * 0.75})`; })
         .style('pointer-events', 'none');
-      badge.append('circle').attr('r', 9).attr('fill', '#f59e0b').attr('stroke', '#1a1a2e').attr('stroke-width', 2);
+           badge.append('circle').attr('r', 9).attr('fill', '#f59e0b').attr('stroke', '#1a1a2e').attr('stroke-width', 2);
       badge.append('text').attr('text-anchor', 'middle').attr('dy', 3.5).attr('font-size', 10).attr('font-weight', 700).attr('fill', '#111')
         .text((d: any) => highlight.badges![d.id]);
+
+      // Zoom so the whole answer is in view (once per answer, or when 📍 is pressed)
+      if (highlight.fitKey && highlight.fitKey !== lastFitRef.current) {
+        lastFitRef.current = highlight.fitKey;
+        const pts = d3Nodes.filter(n => lit.has(n.id));
+        if (pts.length) {
+          const pad = 90;
+          const x0 = Math.min(...pts.map(p => p.x)) - pad, x1 = Math.max(...pts.map(p => p.x)) + pad;
+          const y0 = Math.min(...pts.map(p => p.y)) - pad, y1 = Math.max(...pts.map(p => p.y)) + pad;
+          const k = Math.max(0.15, Math.min(1.6, width / (x1 - x0), height / (y1 - y0)));
+          const t = d3.zoomIdentity.translate(width / 2 - (k * (x0 + x1)) / 2, height / 2 - (k * (y0 + y1)) / 2).scale(k);
+          svg.transition().duration(600).call(zoom.transform as any, t);
+        }
+      }
     }
 
     // Redraw the lines touching one node (after a drag or a move from another browser)

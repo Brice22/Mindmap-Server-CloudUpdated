@@ -72,3 +72,5 @@ export class Neo4jService implements OnModuleInit, OnModuleDestroy {
     if (this.driver) {
       await this.driver.close();
     }
+  }
+}

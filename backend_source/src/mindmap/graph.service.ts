@@ -39,7 +39,7 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
   private dirty = true;
   private lastSync: Date | null = null;
   private lastError: string | null = null;
-  private counts = { nodes: 0, parents: 0, links: 0 };
+  private counts = { nodes: 0, parents: 0, links: 0, mentions: 0 };
 
   constructor(
     @Inject(DatabaseService) private readonly db: DatabaseService,
@@ -76,11 +76,14 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
   // ------------------------------------------------------------
   private async currentFingerprint(): Promise<string> {
     const r = await this.db.query(`
-      SELECT
+    SELECT
         (SELECT COALESCE(string_agg(id || ':' || name || ':' || COALESCE(metadata->>'parent', '') || ':' || COALESCE(metadata->>'type', ''), '|' ORDER BY id), '') FROM mindmap_nodes) AS nodes,
         (SELECT COALESCE(string_agg(l.id || ':' || l.source_id || ':' || l.target_id || ':' || COALESCE(l.type_id, 0) || ':' || COALESCE(l.label, '') || ':' || COALESCE(t.name, ''), '|' ORDER BY l.id), '')
-           FROM node_links l LEFT JOIN link_types t ON t.id = l.type_id) AS links`);
-    return crypto.createHash('sha1').update(r.rows[0].nodes + '#' + r.rows[0].links).digest('hex');
+           FROM node_links l LEFT JOIN link_types t ON t.id = l.type_id) AS links,
+        (SELECT COALESCE(string_agg(DISTINCT source_node_id || '>' || target_node_id || ':' || kind, '|'), '')
+           FROM node_backlinks WHERE source_node_id IS NOT NULL) AS mentions`);
+    const row = r.rows[0];
+    return crypto.createHash('sha1').update(row.nodes + '#' + row.links + '#' + row.mentions).digest('hex');
   }
 
   private async tick() {
@@ -115,6 +118,15 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
        FROM node_links l LEFT JOIN link_types t ON t.id = l.type_id`,
     )).rows;
 
+    // Text in one node's docs/drawings/description that links to or mentions another node
+    const mentions = (await this.db.query(
+      `SELECT source_node_id AS source, target_node_id AS target,
+              CASE WHEN bool_or(kind = 'link') THEN 'link' ELSE 'mention' END AS kind
+       FROM node_backlinks
+       WHERE source_node_id IS NOT NULL AND source_node_id <> target_node_id
+       GROUP BY source_node_id, target_node_id`,
+    )).rows;
+
     // Parent lines are stored by NAME on the child; match names the same way the graph does (ignoring case)
     const byName = new Map<string, number>();
     for (const n of nodes) if (!byName.has(n.name.toLowerCase())) byName.set(n.name.toLowerCase(), n.id);
@@ -138,12 +150,18 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
       {
         cypher: `UNWIND $rows AS r
                  MATCH (a:Node {id: toInteger(r.source_id)}), (b:Node {id: toInteger(r.target_id)})
-                 CREATE (a)-[:LINK {linkId: toInteger(r.id), typeId: toInteger(r.type_id), typeName: r.type_name, label: r.label}]->(b)`,
+                       CREATE (a)-[:LINK {linkId: toInteger(r.id), typeId: toInteger(r.type_id), typeName: r.type_name, label: r.label}]->(b)`,
         params: { rows: links },
       },
+      {
+        cypher: `UNWIND $rows AS r
+                 MATCH (a:Node {id: toInteger(r.source)}), (b:Node {id: toInteger(r.target)})
+                 CREATE (a)-[:MENTIONS {kind: r.kind}]->(b)`,
+        params: { rows: mentions },
+      },
     ]);
-    this.counts = { nodes: nodes.length, parents: parents.length, links: links.length };
-    this.logger.log(`Graph copy in Neo4j: ${nodes.length} nodes, ${parents.length} parent lines, ${links.length} links`);
+    this.counts = { nodes: nodes.length, parents: parents.length, links: links.length, mentions: mentions.length };
+    this.logger.log(`Graph copy in Neo4j: ${nodes.length} nodes, ${parents.length} parent lines, ${links.length} links, ${mentions.length} mentions`);
   }
 
   // ------------------------------------------------------------
@@ -204,10 +222,10 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
     if (from === to) throw new BadRequestException('Pick two different nodes');
     const res = await this.neo4j.read(
       `MATCH (a:Node {id: $from}), (b:Node {id: $to})
-       MATCH p = shortestPath((a)-[*..${MAX_STEPS}]-(b))
+             MATCH p = shortestPath((a)-[*..${MAX_STEPS}]-(b))
        RETURN [n IN nodes(p) | {id: n.id, name: n.name}] AS nodes,
               [r IN relationships(p) | {a: startNode(r).id, b: endNode(r).id,
-                 kind: CASE type(r) WHEN 'CHILD_OF' THEN 'parent' ELSE 'link' END,
+                 kind: CASE type(r) WHEN 'CHILD_OF' THEN 'parent' WHEN 'MENTIONS' THEN 'mention' ELSE 'link' END,
                  typeName: r.typeName, label: r.label}] AS rels`,
       { from, to },
     );
@@ -236,10 +254,10 @@ export class GraphService implements OnModuleInit, OnModuleDestroy {
     );
     const nodes = res.records.map(r => ({ id: Number(r.get('id')), name: r.get('name'), steps: Number(r.get('steps')) }));
     // the lines between all of these (and the start node), for highlighting
-    const ids = [id, ...nodes.map(n => n.id)];
+       const ids = [id, ...nodes.map(n => n.id)];
     const lines = await this.neo4j.read(
       `MATCH (a:Node)-[r]->(b:Node) WHERE a.id IN $ids AND b.id IN $ids
-       RETURN a.id AS a, b.id AS b, CASE type(r) WHEN 'CHILD_OF' THEN 'parent' ELSE 'link' END AS kind, r.typeName AS typeName, r.label AS label`,
+       RETURN a.id AS a, b.id AS b, CASE type(r) WHEN 'CHILD_OF' THEN 'parent' WHEN 'MENTIONS' THEN 'mention' ELSE 'link' END AS kind, r.typeName AS typeName, r.label AS label`,
       { ids },
     );
     return { nodeId: id, depth: d, nodes, edges: this.edgesOf(lines.records.map(r => r.toObject())) };

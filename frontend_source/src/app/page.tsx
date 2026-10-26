@@ -498,6 +498,10 @@ export default function Dashboard() {
         setGraphTool({ mode: 'before', node });
         break;
 
+      case 'graphGoals':
+        setGraphTool({ mode: 'goals', node });
+        break;
+
       case 'graphPath':
         setGraphTool({ mode: 'path', node });
         break;
@@ -882,6 +886,10 @@ export default function Dashboard() {
                           onClose={() => setGraphTool(null)}
                           onHighlight={setGraphHighlight}
                           onSelectNode={handleNodeClick}
+                          onMarkDone={async goal => {
+                            const meta = typeof goal.metadata === 'string' ? JSON.parse(goal.metadata) : goal.metadata || {};
+                            await updateNode(goal.id, { metadata: { ...meta, todoStatus: 'done' } } as any);
+                          }}
                         />
                      )}
                      <MindMapGraph
