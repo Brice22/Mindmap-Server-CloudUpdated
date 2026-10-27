@@ -29,8 +29,11 @@ export class QuizController {
   @Get('coverage')
   coverage(@Query('nodeIds') nodeIds?: string) { return this.quiz.coverage(nodeIds); }
 
-  @Post('reflections')
+   @Post('reflections')
   reflect(@Body() body: any) { return this.quiz.saveReflection(body || {}); }
+
+  @Get('export')
+  exportData(@Query('nodeIds') nodeIds?: string, @Query('days') days?: string) { return this.quiz.exportData(nodeIds, days); }
 
   @Get('reflections')
   reflections(@Query('nodeId') nodeId?: string) { return this.quiz.reflections(nodeId); }

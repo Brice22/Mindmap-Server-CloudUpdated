@@ -21,6 +21,7 @@ import QuestionEditor, { type QuizQuestion } from './quiz/QuestionEditor';
 import QuestionRunner, { type RevealInfo } from './quiz/QuestionRunner';
 import LleChart from './quiz/LleChart';
 import SynthesisBox from './quiz/SynthesisBox';
+import ExportDialog from './quiz/ExportDialog';
 
 interface Flashcard {
   id: string;
@@ -87,9 +88,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
   const [search, setSearch] = useState('');
 
   // Question editor (new / edit) and the LLE chart
-  const [editing, setEditing] = useState<{ card?: Flashcard; preset?: { nodeId?: number | null; lleLevel?: number | null; lleRep?: string | null } } | null>(null);
+   const [editing, setEditing] = useState<{ card?: Flashcard; preset?: { nodeId?: number | null; lleLevel?: number | null; lleRep?: string | null } } | null>(null);
   const [showChart, setShowChart] = useState(() => { try { return localStorage.getItem('hserver:lleChart') === '1'; } catch { return false; } });
   const [chartRefresh, setChartRefresh] = useState(0);
+  const [showExport, setShowExport] = useState(false);   // 📤 Export for AI
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [message, setMessage] = useState('');
 
@@ -358,9 +360,11 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          {viewMode !== 'deck' && (
+                   {viewMode !== 'deck' && (
             <button onClick={() => { setViewMode('deck'); setSession(null); }} style={{ ...btn, background: '#333', color: '#ccc' }}>← Back to Deck</button>
           )}
+          <button onClick={() => setShowExport(true)} title="Your answers + LLE analysis as a report for an AI (Claude) to analyse"
+            style={{ ...btn, background: '#333', color: '#ddd' }}>📤 Export for AI</button>
           <button onClick={() => setEditing({ preset: { nodeId: deckId } })}
             style={{ ...btn, background: '#0070f3', color: '#fff' }}>+ New question</button>
         </div>
@@ -615,8 +619,15 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                 style={{ ...btn, background: '#0070f3', color: '#fff', padding: '12px 24px' }}>Review more ({dueCards.length} due)</button>
             </div>
           </div>
-               );
+                     );
       })()}
+
+      {/* 📤 EXPORT FOR AI */}
+      {showExport && (
+        <ExportDialog apiUrl={apiUrl} deckTitle={deckTitle}
+          deckNodeIds={deckId != null ? Array.from(deckNodeIds(deckId)) : null}
+          onClose={() => setShowExport(false)} />
+      )}
 
       {/* NEW / EDIT QUESTION */}
       {editing && (

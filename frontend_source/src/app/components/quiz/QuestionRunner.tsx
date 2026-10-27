@@ -72,10 +72,12 @@ export default function QuestionRunner({ q, revealed, onReveal }: Props) {
   const checkNumeric = () => {
     if (!instance || instance.error) return;
     const r = checkAnswer(typed, instance.answer, q.spec?.tolerancePct ?? 1);
-    if (r.error) { setTypeError(r.error); return; }
+      if (r.error) { setTypeError(r.error); return; }
     setTypeError('');
     setResult({ ok: r.ok, given: r.given });
-    onReveal({ correct: r.ok, suggested: r.ok ? 3 : 1, response: typed });
+    // Saved with the answer (for 📤 Export): what you typed, the numbers you got, the right answer
+    const numbers = Object.entries(instance.vars).map(([k, v]) => `${k} = ${formatNumber(v as number, 6)}`).join(', ');
+    onReveal({ correct: r.ok, suggested: r.ok ? 3 : 1, response: `${typed} (numbers: ${numbers}; correct: ${formatNumber(instance.answer)}${unit})` });
   };
   const pick = (i: number) => {
     if (revealed) return;
@@ -86,10 +88,13 @@ export default function QuestionRunner({ q, revealed, onReveal }: Props) {
   const compareExplain = () => onReveal({ correct: null, suggested: null, response: written });
 
   // Checklist ticks → suggested rating (after comparing)
-  const tickRatio = checklist.length ? ticks.filter(Boolean).length / checklist.length : null;
+   const tickRatio = checklist.length ? ticks.filter(Boolean).length / checklist.length : null;
   useEffect(() => {
     if (q.kind !== 'explain' || !revealed || tickRatio === null) return;
-    onReveal({ correct: tickRatio >= 0.9, suggested: tickRatio >= 0.9 ? 3 : tickRatio >= 0.6 ? 2 : 1, response: written });
+    const covered = checklist.filter((_, i) => ticks[i]);
+    const missed = checklist.filter((_, i) => !ticks[i]);
+    onReveal({ correct: tickRatio >= 0.9, suggested: tickRatio >= 0.9 ? 3 : tickRatio >= 0.6 ? 2 : 1,
+      response: `${written}\n[covered ${covered.length}/${checklist.length}${missed.length ? `; missed: ${missed.join(' | ')}` : ''}]` });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [ticks]);
 

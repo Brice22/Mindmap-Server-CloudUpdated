@@ -162,7 +162,44 @@ export class QuizService {
       'INSERT INTO quiz_reflections (node_ids, prompt, response) VALUES ($1::int[], $2, $3) RETURNING *',
       [nodeIds, prompt.slice(0, 2000), response.slice(0, 20000)],
     );
-    return res.rows[0];
+       return res.rows[0];
+  }
+
+  // ------------------------------------------------------------
+  // 📤 EXPORT FOR AI ANALYSIS: every answer with its question, plus the
+  // questions themselves, coverage and synthesis answers — for some nodes
+  // (all if none) over the last N days. The Quiz Center turns it into a
+  // Markdown report to paste into an AI chat or download.
+  async exportData(nodeIdsRaw: string | undefined, daysRaw: any) {
+    const ids = String(nodeIdsRaw || '').split(',').map(toId).filter((n): n is number => !!n);
+    const days = Math.min(3650, Math.max(1, Math.round(Number(daysRaw) || 30)));
+    const scope = ids.length ? 'AND r.node_id = ANY($1::int[])' : '';
+    const params: any[] = ids.length ? [ids] : [];
+    const [reviews, questions, reflections, coverage] = await Promise.all([
+      this.db.query(
+        `SELECT r.reviewed_at, r.rating, r.correct, r.mechanism, r.seconds, r.response,
+                r.lle_level, r.lle_rep, f.id AS question_id, f.kind, f.question, f.answer, f.spec,
+                COALESCE(n.name, f.node_name) AS node
+         FROM quiz_reviews r
+         JOIN flashcards f ON f.id = r.card_id
+         LEFT JOIN mindmap_nodes n ON n.id = r.node_id
+         WHERE r.reviewed_at > NOW() - INTERVAL '${days} days' ${scope}
+         ORDER BY r.reviewed_at
+         LIMIT 3000`, params),
+      this.db.query(
+        `SELECT f.id, f.kind, f.question, f.lle_level, f.lle_rep, f.interval_days, f.ease_factor, f.review_count,
+                f.next_review, COALESCE(n.name, f.node_name) AS node
+         FROM flashcards f LEFT JOIN mindmap_nodes n ON n.id = f.node_id
+         ${ids.length ? 'WHERE f.node_id = ANY($1::int[])' : ''}
+         ORDER BY node, f.id
+         LIMIT 3000`, params),
+      this.db.query(
+        `SELECT created_at, prompt, response FROM quiz_reflections
+         WHERE created_at > NOW() - INTERVAL '${days} days' ${ids.length ? 'AND node_ids && $1::int[]' : ''}
+         ORDER BY created_at`, params),
+      this.coverage(ids.join(','), days),
+    ]);
+    return { days, nodeIds: ids, reviews: reviews.rows, questions: questions.rows, reflections: reflections.rows, coverage };
   }
 
   async reflections(nodeId?: any) {
