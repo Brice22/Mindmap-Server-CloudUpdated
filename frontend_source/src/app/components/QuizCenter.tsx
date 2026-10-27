@@ -22,6 +22,8 @@ import QuestionRunner, { type RevealInfo } from './quiz/QuestionRunner';
 import LleChart from './quiz/LleChart';
 import SynthesisBox from './quiz/SynthesisBox';
 import ExportDialog from './quiz/ExportDialog';
+import { metaOf as labelMeta, tagsOf, withDescendants, type Tag } from '@/lib/labels';
+
 
 interface Flashcard {
   id: string;
@@ -63,9 +65,18 @@ type ViewMode = 'deck' | 'quiz' | 'stats';
 interface QuizCenterProps {
   nodes: Node[];
   onOpenNode: (node: Node) => void;
-  apiUrl: string;
+   apiUrl: string;
   focusNodeId?: number | null;     // open with this node's deck selected (from the Inspector)
   onClearFocus?: () => void;
+  tags?: Tag[];                    // 🏷 tag decks
+}
+
+interface DailyInfo {
+  settings: { newPerDay: number; dailyMinimum: number };
+  answeredToday: number;
+  newDoneToday: number;
+  streak: number;
+  doneToday: boolean;
 }
 
 // Today's date where you are (not UTC), as YYYY-MM-DD
@@ -78,13 +89,16 @@ const metaOf = (n: Node): any => (typeof n.metadata === 'string' ? JSON.parse(n.
 const btn: React.CSSProperties = { border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13 };
 const tile: React.CSSProperties = { background: '#2a2a3a', padding: 16, borderRadius: 8 };
 
-export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onClearFocus }: QuizCenterProps) {
+export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onClearFocus, tags = [] }: QuizCenterProps) {
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('deck');
   const [session, setSession] = useState<QuizSession | null>(null);
   const [deckId, setDeckId] = useState<number | null>(focusNodeId ?? null);   // selected deck (node)
+  const [deckTag, setDeckTag] = useState<string | null>(null);                 // 🏷 or a tag deck
   const [withSubNodes, setWithSubNodes] = useState(true);
+  const [daily, setDaily] = useState<DailyInfo | null>(null);
+  const [dailySettingsOpen, setDailySettingsOpen] = useState(false);
   const [search, setSearch] = useState('');
 
   // Question editor (new / edit) and the LLE chart
@@ -118,12 +132,31 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     setLoaded(true);
   }, [apiUrl]);
 
-  useEffect(() => { load(); }, [load]);
+   useEffect(() => { load(); }, [load]);
+
+  // 🗓 Today's progress (answers logged on the server)
+  const loadDaily = useCallback(() => {
+    fetch(`${apiUrl}/api/mindmap/quiz/daily`).then(r => (r.ok ? r.json() : null)).then(d => { if (d) setDaily(d); }).catch(() => {});
+  }, [apiUrl]);
+  useEffect(() => {
+    const t = setTimeout(loadDaily, viewMode === 'deck' ? 0 : 700);   // after a session: once its last answer is saved
+    return () => clearTimeout(t);
+  }, [loadDaily, viewMode]);
+
+  const saveDailySettings = async (changes: Partial<DailyInfo['settings']>) => {
+    try {
+      await fetch(`${apiUrl}/api/mindmap/quiz/settings`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(changes),
+      });
+    } catch {}
+    loadDaily();
+  };
 
   // Opened from "🧪 Study this node"
   useEffect(() => {
     if (focusNodeId == null) return;
     setDeckId(focusNodeId);
+    setDeckTag(null);
     setViewMode('deck');
     setSession(null);
     onClearFocus?.();
@@ -157,14 +190,21 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
       }
     }
     return ids;
-  }, [nodes, childrenOf, withSubNodes]);
+    }, [nodes, childrenOf, withSubNodes]);
 
   const deckNode = deckId != null ? nodes.find(n => n.id === deckId) : null;
+  // The nodes in the chosen deck: a node (+ sub-nodes), every node with a tag (+ sub-nodes), or null = all
+  const scopeIds = useMemo<Set<number> | null>(() => {
+    if (deckTag) {
+      const tagged = nodes.filter(n => tagsOf(n).includes(deckTag)).map(n => n.id);
+      return withSubNodes ? withDescendants(nodes, tagged) : new Set(tagged);
+    }
+    return deckId != null ? deckNodeIds(deckId) : null;
+  }, [deckTag, deckId, deckNodeIds, nodes, withSubNodes]);
   const inDeck = useMemo(() => {
-    if (deckId == null) return cards;
-    const ids = deckNodeIds(deckId);
-    return cards.filter(c => c.nodeId != null && ids.has(c.nodeId));
-  }, [cards, deckId, deckNodeIds]);
+    if (!scopeIds) return cards;
+    return cards.filter(c => c.nodeId != null && scopeIds.has(c.nodeId));
+  }, [cards, scopeIds]);
 
   const dueCards = inDeck.filter(isDue);
   const masteredCards = inDeck.filter(c => c.interval >= 21);
@@ -185,7 +225,37 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     // eslint-disable-next-line react-hooks/exhaustive-deps
    }, [cards, nodes, today]);
 
-  const quizNodes = nodes.filter(n => metaOf(n).quizEnabled);
+    const quizNodes = nodes.filter(n => metaOf(n).quizEnabled);
+
+  // 🏷 Tag decks: cards on nodes with the tag (and their sub-nodes)
+  const tagDecks = useMemo(() => tags.map(t => {
+    const ids = withDescendants(nodes, nodes.filter(n => tagsOf(n).includes(t.name)).map(n => n.id));
+    const mine = cards.filter(c => c.nodeId != null && ids.has(c.nodeId));
+    return { tag: t, total: mine.length, due: mine.filter(isDue).length };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }), [tags, nodes, cards, today]);
+
+  // --------------------------------------------------------
+  // 🗓 DAILY REVIEW
+  // --------------------------------------------------------
+  const knowledgeRoots = useMemo(() => nodes.filter(n => labelMeta(n).role === 'knowledge').map(n => n.id), [nodes]);
+  const dailyPlan = useMemo(() => {
+    const ids = knowledgeRoots.length ? withDescendants(nodes, knowledgeRoots) : null;
+    const pool = ids ? cards.filter(c => c.nodeId != null && ids.has(c.nodeId)) : cards;
+    const settings = daily?.settings || { newPerDay: 30, dailyMinimum: 30 };
+    const due = pool.filter(c => c.reviewCount > 0 && isDue(c));
+    const newLeft = Math.max(0, settings.newPerDay - (daily?.newDoneToday || 0));
+    const fresh = pool.filter(c => c.reviewCount === 0).sort((a, b) => Number(a.id) - Number(b.id)).slice(0, newLeft);
+    const chosen = new Set([...due, ...fresh].map(c => c.id));
+    // Not enough for today's minimum? Add the weakest (lowest ease, longest since seen)
+    const stillNeeded = Math.max(0, settings.dailyMinimum - (daily?.answeredToday || 0) - chosen.size);
+    const extra = pool
+      .filter(c => !chosen.has(c.id) && c.reviewCount > 0)
+      .sort((a, b) => a.easeFactor - b.easeFactor || String(a.lastReview).localeCompare(String(b.lastReview)))
+      .slice(0, stillNeeded);
+    return { pool, due, fresh, extra, set: [...due, ...fresh, ...extra], usingAll: !ids };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [cards, nodes, knowledgeRoots, daily, today]);
 
   const listed = search.trim()
     ? inDeck.filter(c => `${c.question} ${c.answer} ${c.nodeName}`.toLowerCase().includes(search.trim().toLowerCase()))
@@ -340,10 +410,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     const perfect = session.results.filter(r => r.rating >= 3).length;
     const forgot = session.results.filter(r => r.rating === 1).length;
     const duration = Math.round((Date.now() - session.startTime) / 1000);
-    return { total, perfect, forgot, duration, accuracy: total > 0 ? Math.round((perfect / total) * 100) : 0 };
+        return { total, perfect, forgot, duration, accuracy: total > 0 ? Math.round((perfect / total) * 100) : 0 };
   };
 
-  const deckTitle = deckNode ? deckNode.name : 'All cards';
+  const deckTitle = deckTag ? `🏷 ${deckTag}` : deckNode ? deckNode.name : 'All cards';
   const current = session && viewMode === 'quiz' ? session.cards[session.currentIndex] : null;
   const currentNode = current?.nodeId != null ? nodes.find(n => n.id === current.nodeId) : null;
 
@@ -373,16 +443,28 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
       {/* DECK VIEW */}
       {viewMode === 'deck' && (
         <div style={{ flex: 1, overflow: 'auto' }}>
-          {/* Which deck */}
+                    {/* Which deck */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
             <span style={{ color: '#888', fontSize: 13 }}>Deck:</span>
-            <select value={deckId ?? ''} onChange={e => setDeckId(e.target.value ? Number(e.target.value) : null)}
+            <select value={deckTag ? `tag:${deckTag}` : deckId ?? ''}
+              onChange={e => {
+                const v = e.target.value;
+                if (v.startsWith('tag:')) { setDeckTag(v.slice(4)); setDeckId(null); }
+                else { setDeckTag(null); setDeckId(v ? Number(v) : null); }
+              }}
               style={{ background: '#2a2a3a', color: '#fff', border: '1px solid #444', borderRadius: 4, padding: '6px 8px' }}>
               <option value="">All cards ({cards.length})</option>
               {deckId != null && !decks.some(d => d.id === deckId) && deckNode && <option value={deckId}>{deckNode.name}</option>}
-              {decks.map(d => <option key={d.id} value={d.id}>{d.node!.name} ({d.total}{d.due ? `, ${d.due} due` : ''})</option>)}
+              {tagDecks.length > 0 && (
+                <optgroup label="Tags">
+                  {tagDecks.map(d => <option key={d.tag.id} value={`tag:${d.tag.name}`}>🏷 {d.tag.name} ({d.total}{d.due ? `, ${d.due} due` : ''})</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Nodes">
+                {decks.map(d => <option key={d.id} value={d.id}>{d.node!.name} ({d.total}{d.due ? `, ${d.due} due` : ''})</option>)}
+              </optgroup>
             </select>
-            {deckId != null && (
+            {(deckId != null || deckTag) && (
               <>
                 <label style={{ color: '#aaa', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
                   <input type="checkbox" checked={withSubNodes} onChange={e => setWithSubNodes(e.target.checked)} /> include sub-nodes
@@ -390,8 +472,63 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                 {deckNode && <button onClick={() => onOpenNode(deckNode)} style={{ ...btn, padding: '4px 10px', background: '#333', color: '#ccc' }}>Show node</button>}
               </>
             )}
-            <button onClick={load} title="Reload cards (after editing Docs)" style={{ ...btn, padding: '4px 10px', background: '#333', color: '#ccc' }}>↻</button>
+                      <button onClick={load} title="Reload cards (after editing Docs)" style={{ ...btn, padding: '4px 10px', background: '#333', color: '#ccc' }}>↻</button>
           </div>
+
+          {/* 🗓 DAILY REVIEW */}
+          {(() => {
+            const st = daily?.settings || { newPerDay: 30, dailyMinimum: 30 };
+            const answered = daily?.answeredToday || 0;
+            const pct = Math.min(100, Math.round((answered / Math.max(1, st.dailyMinimum)) * 100));
+            const p = dailyPlan;
+            return (
+              <div style={{ ...tile, marginBottom: 20, border: '1px solid #3b3b55' }}>
+                <div style={{ display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' }}>
+                  <div style={{ flex: 1, minWidth: 220 }}>
+                    <div style={{ color: '#fff', fontWeight: 'bold', fontSize: 15 }}>
+                      🗓 Daily review {daily?.doneToday && <span style={{ color: '#22c55e', fontSize: 13 }}>· ✅ minimum reached</span>}
+                    </div>
+                    <div style={{ color: '#999', fontSize: 12, marginTop: 4 }}>
+                      {p.set.length
+                        ? <>{p.set.length} to do: {p.due.length} due · {p.fresh.length} new{p.extra.length ? ` · ${p.extra.length} weakest (to reach ${st.dailyMinimum})` : ''}</>
+                        : p.pool.length ? 'Nothing left for today.' : 'No questions in your Knowledge nodes yet.'}
+                    </div>
+                  </div>
+                  <div style={{ textAlign: 'center' }} title="Days in a row you answered at least the daily minimum">
+                    <div style={{ color: '#f97316', fontSize: 22, fontWeight: 'bold' }}>🔥 {daily?.streak ?? 0}</div>
+                    <div style={{ color: '#777', fontSize: 11 }}>day streak</div>
+                  </div>
+                  <button onClick={() => startQuiz(p.set, 'Daily review')} disabled={!p.set.length}
+                    style={{ ...btn, padding: '12px 22px', fontWeight: 'bold', background: p.set.length ? '#22c55e' : '#333', color: p.set.length ? '#fff' : '#666', cursor: p.set.length ? 'pointer' : 'default' }}>
+                    Start daily review ({p.set.length})
+                  </button>
+                  <button onClick={() => setDailySettingsOpen(o => !o)} title="Daily review settings" style={{ ...btn, background: '#333', color: '#ccc' }}>⚙</button>
+                </div>
+                <div style={{ marginTop: 10, height: 6, background: '#333', borderRadius: 3 }} title={`${answered} of ${st.dailyMinimum} answered today`}>
+                  <div style={{ height: '100%', width: `${pct}%`, borderRadius: 3, background: pct >= 100 ? '#22c55e' : '#f59e0b', transition: 'width 0.3s' }} />
+                </div>
+                <div style={{ color: '#777', fontSize: 11, marginTop: 4 }}>
+                  {answered} / {st.dailyMinimum} answered today · {daily?.newDoneToday || 0} / {st.newPerDay} new
+                  {p.usingAll && p.pool.length > 0 && <> · <span style={{ color: '#a78bfa' }}>Using all cards — give nodes the 📚 Knowledge role (right-click → 🏷 Role &amp; tags…) to choose what is quizzed daily</span></>}
+                </div>
+                {dailySettingsOpen && (
+                  <div style={{ display: 'flex', gap: 16, marginTop: 10, flexWrap: 'wrap', alignItems: 'center', fontSize: 12 }}>
+                    <label>New questions per day{' '}
+                      <input type="number" min={0} max={500} defaultValue={st.newPerDay} key={`n${st.newPerDay}`}
+                        onBlur={e => { const v = Number(e.target.value); if (v !== st.newPerDay) saveDailySettings({ newPerDay: v }); }}
+                        style={{ width: 64, background: '#1e1e2e', color: '#fff', border: '1px solid #444', borderRadius: 4, padding: '3px 6px' }} />
+                    </label>
+                    <label>Daily minimum (answers){' '}
+                      <input type="number" min={0} max={500} defaultValue={st.dailyMinimum} key={`m${st.dailyMinimum}`}
+                        onBlur={e => { const v = Number(e.target.value); if (v !== st.dailyMinimum) saveDailySettings({ dailyMinimum: v }); }}
+                        style={{ width: 64, background: '#1e1e2e', color: '#fff', border: '1px solid #444', borderRadius: 4, padding: '3px 6px' }} />
+                    </label>
+                    <span style={{ color: '#666' }}>Saved when you click away.</span>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
 
           {/* Summary */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(150px, 1fr))', gap: 12, marginBottom: 20 }}>
@@ -430,10 +567,26 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
             </button>
           </div>
 
-          {message && <div style={{ color: '#f59e0b', fontSize: 13, marginBottom: 16 }}>{message}</div>}
+                   {message && <div style={{ color: '#f59e0b', fontSize: 13, marginBottom: 16 }}>{message}</div>}
+
+          {/* 🏷 Tag decks */}
+          {deckId == null && !deckTag && tagDecks.some(d => d.total > 0) && (
+            <div style={{ marginBottom: 24 }}>
+              <h3 style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>Tags</h3>
+              <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+                {tagDecks.filter(d => d.total > 0).map(d => (
+                  <div key={d.tag.id} onClick={() => { setDeckTag(d.tag.name); setDeckId(null); }}
+                    style={{ background: '#2a2a3a', padding: '8px 14px', borderRadius: 16, cursor: 'pointer', border: `1px solid ${d.tag.color}` }}>
+                    <span style={{ color: d.tag.color, fontWeight: 'bold' }}>● {d.tag.name}</span>
+                    <span style={{ color: '#888', fontSize: 11 }}> {d.total}{d.due ? <span style={{ color: '#f59e0b' }}> · {d.due} due</span> : ''}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Decks */}
-          {deckId == null && decks.length > 0 && (
+          {deckId == null && !deckTag && decks.length > 0 && (
             <div style={{ marginBottom: 24 }}>
               <h3 style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>Decks</h3>
               <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(200px, 1fr))', gap: 8 }}>
@@ -453,17 +606,18 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           {/* 🧩 LLE chart for this deck */}
           <div style={{ marginBottom: 24 }}>
             <h3 onClick={() => setShowChart(v => { try { localStorage.setItem('hserver:lleChart', v ? '0' : '1'); } catch {} return !v; })}
-              style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12, cursor: 'pointer' }}>
+                          style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12, cursor: 'pointer' }}>
               {showChart ? '▾' : '▸'} 🧩 LLE chart — {deckTitle}
             </h3>
-            {showChart && (
-              <LleChart apiUrl={apiUrl} nodeIds={deckId != null ? Array.from(deckNodeIds(deckId)) : null} refreshKey={chartRefresh}
+            {showChart && scopeIds && scopeIds.size === 0 && <div style={{ color: '#777', fontSize: 13 }}>No nodes in this deck yet.</div>}
+            {showChart && !(scopeIds && scopeIds.size === 0) && (
+              <LleChart apiUrl={apiUrl} nodeIds={scopeIds ? Array.from(scopeIds) : null} refreshKey={chartRefresh}
                 onCell={(lleLevel, lleRep) => setEditing({ preset: { nodeId: deckId, lleLevel, lleRep } })} />
             )}
           </div>
 
           {/* AI generation (needs MindsDB) */}
-          {deckId == null && quizNodes.length > 0 && (
+          {deckId == null && !deckTag && quizNodes.length > 0 && (
             <div style={{ marginBottom: 24 }}>
               <h3 style={{ color: '#aaa', fontSize: 13, textTransform: 'uppercase', marginBottom: 12 }}>Quiz pool — click to make AI cards</h3>
               <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -622,10 +776,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                      );
       })()}
 
-      {/* 📤 EXPORT FOR AI */}
+           {/* 📤 EXPORT FOR AI */}
       {showExport && (
         <ExportDialog apiUrl={apiUrl} deckTitle={deckTitle}
-          deckNodeIds={deckId != null ? Array.from(deckNodeIds(deckId)) : null}
+          deckNodeIds={scopeIds ? Array.from(scopeIds) : null}
           onClose={() => setShowExport(false)} />
       )}
 

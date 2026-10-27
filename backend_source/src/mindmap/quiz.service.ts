@@ -199,7 +199,59 @@ export class QuizService {
          ORDER BY created_at`, params),
       this.coverage(ids.join(','), days),
     ]);
-    return { days, nodeIds: ids, reviews: reviews.rows, questions: questions.rows, reflections: reflections.rows, coverage };
+       return { days, nodeIds: ids, reviews: reviews.rows, questions: questions.rows, reflections: reflections.rows, coverage };
+  }
+
+  // ------------------------------------------------------------
+  // 🗓 DAILY REVIEW settings: how many never-seen questions to add a day,
+  // and the minimum to answer a day (topped up with your weakest ones).
+  async settings() {
+    const row = (await this.db.query(`SELECT value FROM app_settings WHERE key = 'quiz'`)).rows[0];
+    return { newPerDay: 30, dailyMinimum: 30, ...(row?.value || {}) };
+  }
+
+  async saveSettings(b: any) {
+    const clamp = (v: any, d: number) => { const n = Math.round(Number(v)); return Number.isFinite(n) ? Math.min(500, Math.max(0, n)) : d; };
+    const cur = await this.settings();
+    const value = { newPerDay: clamp(b.newPerDay ?? cur.newPerDay, 30), dailyMinimum: clamp(b.dailyMinimum ?? cur.dailyMinimum, 30) };
+    await this.db.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ('quiz', $1::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = NOW()`,
+      [JSON.stringify(value)],
+    );
+    return value;
+  }
+
+  // Today's progress, in your time zone (the backend's TZ, e.g. America/Chicago):
+  //   answeredToday  answers given today
+  //   newDoneToday   questions answered for the very first time today
+  //   streak         days in a row (up to today) you answered at least the daily minimum
+  async daily() {
+    const settings = await this.settings();
+    const tz = process.env.TZ || 'America/Chicago';
+    // reviewed_at is stored in the database's own time zone; turn it into your local day
+    const day = `((reviewed_at AT TIME ZONE current_setting('TimeZone')) AT TIME ZONE $1)::date`;
+    const today = `(NOW() AT TIME ZONE $1)::date`;
+    const [counts, firsts, days] = await Promise.all([
+      this.db.query(`SELECT COUNT(*)::int AS n FROM quiz_reviews WHERE ${day} = ${today}`, [tz]),
+      this.db.query(
+        `SELECT COUNT(*)::int AS n FROM (SELECT card_id, MIN(${day}) AS first FROM quiz_reviews GROUP BY card_id) f
+         WHERE f.first = ${today}`, [tz]),
+      this.db.query(
+        `SELECT to_char(${day}, 'YYYY-MM-DD') AS d, COUNT(*)::int AS n FROM quiz_reviews
+         WHERE reviewed_at > NOW() - INTERVAL '400 days' GROUP BY 1 ORDER BY 1 DESC`, [tz]),
+    ]);
+    const answeredToday = counts.rows[0]?.n || 0;
+    const min = Math.max(1, settings.dailyMinimum);
+    // Count back from today (or from yesterday if today isn't finished yet)
+    const iso = (d: Date) => d.toISOString().slice(0, 10);
+    const done = new Set(days.rows.filter((r: any) => r.n >= min).map((r: any) => r.d));
+    const local = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+    const cursor = new Date(Date.UTC(local.getFullYear(), local.getMonth(), local.getDate()));
+    if (!done.has(iso(cursor))) cursor.setUTCDate(cursor.getUTCDate() - 1);
+    let streak = 0;
+    while (done.has(iso(cursor))) { streak++; cursor.setUTCDate(cursor.getUTCDate() - 1); }
+    return { settings, answeredToday, newDoneToday: firsts.rows[0]?.n || 0, streak, doneToday: answeredToday >= min };
   }
 
   async reflections(nodeId?: any) {

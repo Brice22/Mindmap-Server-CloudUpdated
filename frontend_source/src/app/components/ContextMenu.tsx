@@ -212,9 +212,12 @@ export default function ContextMenu({
       divider: true,
     },
     {
-      label: meta.quizEnabled ? '🧪 Remove from Quiz' : '🧪 Add to Quiz Pool',
+           label: meta.quizEnabled ? '🧪 Remove from Quiz' : '🧪 Add to Quiz Pool',
       action: 'toggleQuizEnabled',
     },
+    // 🏷 What the node is for (Knowledge, Lesson plan, Book…) and its topic tags
+    { label: '🏷 Role & tags…', icon: '🏷', action: 'labels' },
+    ...(meta.role === 'lessonPlan' ? [{ label: '🗂 Open lesson plan', icon: '🗂', action: 'openLessonPlan' }] : []),
 
     // === DANGER ZONE ===
     { label: '🗑️ Delete Node', icon: '🗑️', action: 'delete', danger: true },

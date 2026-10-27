@@ -28,6 +28,7 @@ import katex from 'katex';
 import 'katex/dist/katex.min.css';
 import { io, Socket } from 'socket.io-client';
 import type { Node, DragState, GraphLink } from '@/lib/types';
+import { matchesFilter, roleOf, tagsOf } from '@/lib/labels';
 
 // ============================================================
 // CONSTANTS
@@ -120,9 +121,10 @@ interface MindMapGraphProps {
   filterType: string;
    linkEdges?: { source: number; target: number; kind: 'link' | 'mention' }[];  // backlink lines (dashed)
   customLinks?: GraphLink[];          // 🔗 your own links (colour/dash/arrow from their link type)
-  onLinksChanged?: () => void;        // another browser changed links → reload them
+    onLinksChanged?: () => void;        // another browser changed links → reload them
   // 🧭 Graph tools answer: these nodes/lines stay bright, the rest dims; badges = small labels above nodes
   highlight?: { nodes: number[]; edges: { from: number; to: number }[]; badges?: Record<number, string>; fitKey?: string } | null;
+  tagColors?: Record<string, string>;  // 🏷 tag name → colour (dots under the node's name)
 }
 
 // One line on the graph: to a parent, a backlink (auto), or one of your links
@@ -136,6 +138,7 @@ type GraphEdge = {
 // Same empty array every render, so "no link lines" doesn't redraw the graph each time
 const NO_LINK_EDGES: { source: number; target: number; kind: 'link' | 'mention' }[] = [];
 const NO_CUSTOM_LINKS: GraphLink[] = [];
+const NO_TAG_COLORS: Record<string, string> = {};
 
 // ============================================================
 // COMPONENT
@@ -148,9 +151,10 @@ export default function MindMapGraph({
     selectedNodeId,
   filterType,
   linkEdges = NO_LINK_EDGES,
-  customLinks = NO_CUSTOM_LINKS,
+   customLinks = NO_CUSTOM_LINKS,
   onLinksChanged,
   highlight = null,
+  tagColors = NO_TAG_COLORS,
 }: MindMapGraphProps) {
   // --------------------------------------------------------
   // REFS
@@ -308,20 +312,12 @@ export default function MindMapGraph({
     const height = svgRef.current.clientHeight || 600;
 
     // Clear previous content
-    svg.selectAll('*').remove();
+        svg.selectAll('*').remove();
 
     // --------------------------------------------------------
-    // FILTER NODES BY TYPE
+    // FILTER NODES: by 🏷 tag ('tag:CNC'), role ('role:knowledge') or type
     // --------------------------------------------------------
-    let filteredData = data;
-    if (filterType !== 'all') {
-      filteredData = data.filter(node => {
-        const meta = typeof node.metadata === 'string'
-          ? JSON.parse(node.metadata)
-          : node.metadata || {};
-        return meta.type === filterType;
-      });
-    }
+    const filteredData = filterType === 'all' ? data : data.filter(node => matchesFilter(node, filterType));
 
     // --------------------------------------------------------
     // PREPARE D3 DATA
@@ -631,8 +627,30 @@ export default function MindMapGraph({
       .attr('text-anchor', 'middle')
       .attr('fill', '#fff')
       .attr('font-size', 12)
-           .attr('font-weight', 500)
+                   .attr('font-weight', 500)
       .text(d => d.name.length > 15 ? d.name.slice(0, 12) + '...' : d.name);
+
+    // --------------------------------------------------------
+    // 🏷 ROLE ICON (top-left) and TAG DOTS (under the name)
+    // --------------------------------------------------------
+    nodeGroups.each(function(d: any) {
+      const r = nodeRadius(metaOf(d));
+      const g = d3.select(this);
+      const role = roleOf(d);
+      if (role) {
+        const badge = g.append('g').attr('transform', `translate(${-r * 0.8}, ${-r * 0.8})`).style('pointer-events', 'none');
+        badge.append('circle').attr('r', 9).attr('fill', '#1a1a2e').attr('stroke', '#555').attr('stroke-width', 1);
+        badge.append('text').attr('text-anchor', 'middle').attr('dy', 4).attr('font-size', 11).text(role.icon);
+        g.append('title').text(`${role.name}${tagsOf(d).length ? ` · ${tagsOf(d).join(', ')}` : ''}`);
+      }
+      const tags = tagsOf(d).slice(0, 6);
+      tags.forEach((t, i) => {
+        g.append('circle')
+          .attr('cx', (i - (tags.length - 1) / 2) * 9).attr('cy', r + 23).attr('r', 3.2)
+          .attr('fill', tagColors[t] || '#888').style('pointer-events', 'none');
+      });
+      if (!role && tags.length) g.append('title').text(tags.join(', '));
+    });
 
     // --------------------------------------------------------
     // 🧭 GRAPH TOOLS ANSWER - light up those nodes and lines, dim the rest
@@ -813,7 +831,7 @@ export default function MindMapGraph({
 
     
 
-   }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges, customLinks, highlight]);
+     }, [data, selectedNodeId, filterType, validatePosition, hasOrphanedParent, linkEdges, customLinks, highlight, tagColors]);
 
   // ============================================================
   // RENDER

@@ -52,6 +52,9 @@ import LinkDialog from './components/LinkDialog';
 import LinkLegend from './components/LinkLegend';
 import GraphToolsPanel, { type GraphToolMode, type GraphHighlight } from './components/GraphToolsPanel';
 import { isOwner } from './components/AuthGate';
+import LabelsDialog from './components/labels/LabelsDialog';
+import LessonPlanPanel from './components/labels/LessonPlanPanel';
+import { ROLES, roleOf, tagsOf, type Tag } from '@/lib/labels';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel, LinkType, NodeLink, GraphLink } from '@/lib/types';
 // ============================================================
 // API BASE URL
@@ -78,10 +81,13 @@ export default function Dashboard() {
   const [tabs, setTabs] = useState<Tab[]>([
     { id: 'graph', title: 'Graph Overview', type: 'graph' },
   ]);
-  const [activeTabId, setActiveTabId] = useState('graph');
+   const [activeTabId, setActiveTabId] = useState('graph');
   const [rightPanelOpen, setRightPanelOpen] = useState(true);
   const [selectedNode, setSelectedNode] = useState<Node | null>(null);
-  const [filterType, setFilterType] = useState('all');
+  const [filterType, setFilterType] = useState(() => {   // graph filter: all · role:knowledge · tag:CNC · a node type
+    try { return localStorage.getItem('hserver:graphFilter') || 'all'; } catch { return 'all'; }
+  });
+  const changeFilter = (v: string) => { setFilterType(v); try { localStorage.setItem('hserver:graphFilter', v); } catch {} };
 
   // --------------------------------------------------------
   // STATE: Context Menu
@@ -129,9 +135,14 @@ export default function Dashboard() {
   const [linkData, setLinkData] = useState<{ types: LinkType[]; links: NodeLink[] }>({ types: [], links: [] });
   const [linksRefresh, setLinksRefresh] = useState(0);
   const [linkDialog, setLinkDialog] = useState<{ source?: Node; link?: NodeLink } | null>(null);
-  // 🧭 Graph tools (Neo4j): which question is open, and what to light up on the graph
+    // 🧭 Graph tools (Neo4j): which question is open, and what to light up on the graph
   const [graphTool, setGraphTool] = useState<{ mode: GraphToolMode; node: Node } | null>(null);
   const [graphHighlight, setGraphHighlight] = useState<GraphHighlight | null>(null);
+  // 🏷 Tags (name + colour), and the Role & tags dialog / lesson plan that are open
+  const [tags, setTags] = useState<Tag[]>([]);
+  const [tagsRefresh, setTagsRefresh] = useState(0);
+  const [labelsNode, setLabelsNode] = useState<Node | null>(null);
+  const [lessonPlanId, setLessonPlanId] = useState<number | null>(null);
   const [hiddenLinkTypes, setHiddenLinkTypes] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('hserver:hiddenLinkTypes') || '[]')); } catch { return new Set(); }
   });
@@ -232,8 +243,21 @@ export default function Dashboard() {
         .then(d => { if (d) setLinkData({ types: d.types || [], links: d.links || [] }); })
         .catch(() => {});
     }, 300);
-    return () => clearTimeout(t);
+       return () => clearTimeout(t);
   }, [nodes, linksRefresh]);
+
+  // 🏷 Tags — reloaded when nodes reload (their counts) or a tag changes
+  const reloadTags = useCallback(() => setTagsRefresh(n => n + 1), []);
+  useEffect(() => {
+    const t = setTimeout(() => {
+      fetch(`${API_URL}/api/mindmap/tags`)
+        .then(r => (r.ok ? r.json() : null))
+        .then(d => { if (Array.isArray(d)) setTags(d); })
+        .catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [nodes, tagsRefresh]);
+  const tagColors = useMemo(() => Object.fromEntries(tags.map(t => [t.name, t.color])), [tags]);
 
   const toggleLinkType = useCallback((key: string) => {
     setHiddenLinkTypes(prev => {
@@ -507,7 +531,15 @@ export default function Dashboard() {
         break;
 
       case 'graphNear':
-        setGraphTool({ mode: 'near', node });
+                setGraphTool({ mode: 'near', node });
+        break;
+
+      case 'labels':
+        setLabelsNode(node);
+        break;
+
+      case 'openLessonPlan':
+        setLessonPlanId(node.id);
         break;
 
       case 'removeParent':
@@ -900,10 +932,29 @@ export default function Dashboard() {
                         selectedNodeId={selectedNode?.id || null}
                         filterType={filterType}
                         linkEdges={showLinkLines ? linkEdges : undefined}
-                        customLinks={graphLinks}
+                                               customLinks={graphLinks}
                         onLinksChanged={reloadLinks}
                         highlight={graphTool ? graphHighlight : null}
+                        tagColors={tagColors}
                       />
+                     {/* 🏷 Show only one role / tag / type (top-left) */}
+                     <select value={filterType} onChange={e => changeFilter(e.target.value)} title="Show only…"
+                        style={{ position: 'absolute', top: 10, left: 10, zIndex: 5, background: filterType === 'all' ? 'rgba(30,30,46,0.95)' : '#1d4ed8',
+                          color: '#fff', border: '1px solid #444', borderRadius: 6, padding: '5px 8px', fontSize: 12 }}>
+                        <option value="all">🏷 All nodes</option>
+                        <optgroup label="Role">
+                          {ROLES.map(r => <option key={r.key} value={`role:${r.key}`}>{r.icon} {r.name}</option>)}
+                        </optgroup>
+                        {tags.length > 0 && (
+                          <optgroup label="Tag">
+                            {tags.map(t => <option key={t.id} value={`tag:${t.name}`}>● {t.name} ({t.nodes ?? 0})</option>)}
+                          </optgroup>
+                        )}
+                        <optgroup label="Type">
+                          {['person', 'medical', 'concept', 'location'].map(t => <option key={t} value={t}>{t}</option>)}
+                        </optgroup>
+                        {filterType.startsWith('tag:') && !tags.some(t => `tag:${t.name}` === filterType) && <option value={filterType}>{filterType.slice(4)}</option>}
+                      </select>
                      </>
                     )}
                   </div>
@@ -1088,6 +1139,7 @@ export default function Dashboard() {
               nodes={nodes}
               apiUrl={API_URL}
               onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
+              tags={tags}
               focusNodeId={quizFocusNodeId}
               onClearFocus={() => setQuizFocusNodeId(null)}
             />
@@ -1181,9 +1233,21 @@ export default function Dashboard() {
             </div>
 
             <div style={{ flex: 1, overflowY: 'auto', padding: '15px' }}>
-              {selectedNode ? (
+                           {selectedNode ? (
                 <>
                   <h2 style={{ marginTop: 0, color: 'white' }}>{selectedNode.name}</h2>
+                  {/* 🏷 Role and tags (click to change) */}
+                  <div onClick={() => setLabelsNode(selectedNode)} title="Role & tags…"
+                    style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: -8, marginBottom: 12, cursor: 'pointer', fontSize: 11 }}>
+                    {roleOf(selectedNode) && <span style={{ background: '#333', color: '#ddd', borderRadius: 10, padding: '2px 8px' }}>{roleOf(selectedNode)!.icon} {roleOf(selectedNode)!.name}</span>}
+                    {tagsOf(selectedNode).map(t => (
+                      <span key={t} style={{ border: `1px solid ${tagColors[t] || '#888'}`, color: tagColors[t] || '#aaa', borderRadius: 10, padding: '1px 8px' }}>{t}</span>
+                    ))}
+                    {!roleOf(selectedNode) && !tagsOf(selectedNode).length && <span style={{ color: '#666' }}>🏷 Add role / tags</span>}
+                    {roleOf(selectedNode)?.key === 'lessonPlan' && (
+                      <span onClick={e => { e.stopPropagation(); setLessonPlanId(selectedNode.id); }} style={{ background: '#1d4ed8', color: '#fff', borderRadius: 10, padding: '2px 8px' }}>🗂 Open plan</span>
+                    )}
+                  </div>
                   <button
                     onClick={() => handleNodeDoubleClick(selectedNode)}
                     style={{
@@ -1267,7 +1331,34 @@ export default function Dashboard() {
           allNodes={nodes}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0, node: null })}
           onAction={handleContextAction}
-              />
+                      />
+      )}
+
+      {/* 🏷 ROLE & TAGS */}
+      {labelsNode && (
+        <LabelsDialog
+          apiUrl={API_URL}
+          node={nodes.find(n => n.id === labelsNode.id) || labelsNode}
+          tags={tags}
+          onTagsChanged={reloadTags}
+          onSave={patch => updateNode(labelsNode.id, { metadata: patch } as any)}
+          onClose={() => setLabelsNode(null)}
+        />
+      )}
+
+      {/* 🗂 LESSON PLAN */}
+      {lessonPlanId != null && nodes.some(n => n.id === lessonPlanId) && (
+        <LessonPlanPanel
+          apiUrl={API_URL}
+          plan={nodes.find(n => n.id === lessonPlanId)!}
+          nodes={nodes}
+          onClose={() => setLessonPlanId(null)}
+          onChanged={fetchNodes}
+          onUpdateNode={updateNode}
+          onEditLesson={lesson => setLabelsNode(lesson)}
+          onQuiz={id => { setLessonPlanId(null); setQuizFocusNodeId(id); setActiveView('quiz'); }}
+          onShowNode={n => { setLessonPlanId(null); setSelectedNode(n); setActiveView('graph'); if (!rightPanelOpen) setRightPanelOpen(true); }}
+        />
       )}
 
       {/* 🔗 ADD / EDIT A LINK */}

@@ -35,6 +35,12 @@ export class QuizController {
   @Get('export')
   exportData(@Query('nodeIds') nodeIds?: string, @Query('days') days?: string) { return this.quiz.exportData(nodeIds, days); }
 
+  @Get('daily')
+  daily() { return this.quiz.daily(); }
+
+  @Put('settings')
+  saveSettings(@Body() body: any) { return this.quiz.saveSettings(body || {}); }
+
   @Get('reflections')
   reflections(@Query('nodeId') nodeId?: string) { return this.quiz.reflections(nodeId); }
 }

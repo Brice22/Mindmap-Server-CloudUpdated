@@ -335,9 +335,22 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
           lle_level SMALLINT,
           lle_rep TEXT,
           seconds INTEGER,
-          response TEXT
+                   response TEXT
         )`,
         `CREATE INDEX IF NOT EXISTS idx_quiz_reviews_node ON quiz_reviews(node_id, reviewed_at)`,
+        // 🏷 Tags you make (name + colour); which nodes have them is in each node's metadata.tags
+        `CREATE TABLE IF NOT EXISTS tags (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL UNIQUE,
+          color TEXT NOT NULL DEFAULT '#60a5fa',
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // Small settings (e.g. the daily review's new-per-day), one JSON value per key
+        `CREATE TABLE IF NOT EXISTS app_settings (
+          key TEXT PRIMARY KEY,
+          value JSONB NOT NULL DEFAULT '{}'::jsonb,
+          updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
         // Level-4 synthesis answers written at the end of a session
         `CREATE TABLE IF NOT EXISTS quiz_reflections (
           id SERIAL PRIMARY KEY,
