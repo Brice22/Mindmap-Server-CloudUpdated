@@ -53,6 +53,7 @@ import LinkLegend from './components/LinkLegend';
 import GraphToolsPanel, { type GraphToolMode, type GraphHighlight } from './components/GraphToolsPanel';
 import { isOwner } from './components/AuthGate';
 import LabelsDialog from './components/labels/LabelsDialog';
+import RenameDialog from './components/RenameDialog';
 import LessonPlanPanel from './components/labels/LessonPlanPanel';
 import { ROLES, roleOf, tagsOf, type Tag } from '@/lib/labels';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel, LinkType, NodeLink, GraphLink } from '@/lib/types';
@@ -140,9 +141,10 @@ export default function Dashboard() {
   const [graphHighlight, setGraphHighlight] = useState<GraphHighlight | null>(null);
   // 🏷 Tags (name + colour), and the Role & tags dialog / lesson plan that are open
   const [tags, setTags] = useState<Tag[]>([]);
-  const [tagsRefresh, setTagsRefresh] = useState(0);
+    const [tagsRefresh, setTagsRefresh] = useState(0);
   const [labelsNode, setLabelsNode] = useState<Node | null>(null);
   const [lessonPlanId, setLessonPlanId] = useState<number | null>(null);
+  const [renameNode, setRenameNode] = useState<Node | null>(null);   // ✏️ Rename dialog
   const [hiddenLinkTypes, setHiddenLinkTypes] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('hserver:hiddenLinkTypes') || '[]')); } catch { return new Set(); }
   });
@@ -321,8 +323,21 @@ export default function Dashboard() {
         workspaceId: workspaceNode?.id ?? null,
         rightPanelOpen,
       }));
-    } catch {}
+       } catch {}
   }, [activeView, selectedNode?.id, workspaceNode?.id, rightPanelOpen]);
+
+  // ✏️ F2 renames the selected node (when you're not typing somewhere)
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'F2' || !selectedNode || activeView !== 'graph' || workspaceNode) return;
+      const t = e.target as HTMLElement;
+      if (t?.closest?.('input, textarea, select, [contenteditable="true"]')) return;
+      e.preventDefault();
+      setRenameNode(selectedNode);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [selectedNode, activeView, workspaceNode]);
 
   // Listen for edge right-click
   useEffect(() => {
@@ -531,7 +546,11 @@ export default function Dashboard() {
         break;
 
       case 'graphNear':
-                setGraphTool({ mode: 'near', node });
+       setGraphTool({ mode: 'near', node });
+        break;
+
+      case 'rename':
+        setRenameNode(node);
         break;
 
       case 'labels':
@@ -1238,10 +1257,14 @@ export default function Dashboard() {
               </button>
             </div>
 
-            <div style={{ flex: 1, overflowY: 'auto', padding: '15px' }}>
+                       <div style={{ flex: 1, overflowY: 'auto', padding: '15px' }}>
                            {selectedNode ? (
                 <>
-                  <h2 style={{ marginTop: 0, color: 'white' }}>{selectedNode.name}</h2>
+                  <h2 style={{ marginTop: 0, color: 'white', display: 'flex', alignItems: 'flex-start', gap: 6 }}>
+                    <span onDoubleClick={() => setRenameNode(selectedNode)} title="Double-click (or F2) to rename" style={{ flex: 1, wordBreak: 'break-word' }}>{selectedNode.name}</span>
+                    <button onClick={() => setRenameNode(selectedNode)} title="Rename (F2)" aria-label="Rename"
+                      style={{ background: 'none', border: 'none', color: '#777', cursor: 'pointer', fontSize: 14, padding: '4px 2px' }}>✏️</button>
+                  </h2>
                   {/* 🏷 Role and tags (click to change) */}
                   <div onClick={() => setLabelsNode(selectedNode)} title="Role & tags…"
                     style={{ display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: -8, marginBottom: 12, cursor: 'pointer', fontSize: 11 }}>
@@ -1337,7 +1360,22 @@ export default function Dashboard() {
           allNodes={nodes}
           onClose={() => setContextMenu({ visible: false, x: 0, y: 0, node: null })}
           onAction={handleContextAction}
-                      />
+                              />
+      )}
+
+      {/* ✏️ RENAME */}
+      {renameNode && (
+        <RenameDialog
+          apiUrl={API_URL}
+          node={nodes.find(n => n.id === renameNode.id) || renameNode}
+          allNodes={nodes}
+          onClose={() => setRenameNode(null)}
+          onRenamed={newName => {
+            const id = renameNode.id;
+            setTabs(prev => prev.map(t => (t.nodeId === id ? { ...t, title: newName } : t)));
+            fetchNodes();
+          }}
+        />
       )}
 
       {/* 🏷 ROLE & TAGS */}

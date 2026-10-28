@@ -1,4 +1,4 @@
-import { Injectable, Inject, Logger, NotFoundException } from '@nestjs/common';
+import { Injectable, Inject, Logger, NotFoundException, BadRequestException } from '@nestjs/common';
 import { DatabaseService } from '../database/database.service';
 import { Neo4jService } from '../neo4j/neo4j.service';
 import { MeiliSearch } from 'meilisearch';
@@ -111,6 +111,16 @@ private _meili: MeiliSearch | null = null;
 }
 
     const row = check.rows[0];
+    // ✏️ Rename: names are unique (any case), because sub-nodes find their parent by name
+    if (name !== undefined) {
+      name = String(name).trim().replace(/\s+/g, ' ');
+      if (!name) throw new BadRequestException('A node needs a name');
+      if (name.length > 200) throw new BadRequestException('Keep the name under 200 characters');
+      if (name !== row.name) {
+        const taken = await this.db.query('SELECT name FROM mindmap_nodes WHERE lower(name) = lower($1) AND id <> $2 LIMIT 1', [name, id]);
+        if (taken.rows.length) throw new BadRequestException(`"${taken.rows[0].name}" already exists — pick another name`);
+      }
+    }
     const finalName = name !== undefined ? name : row.name;
     const finalDesc = description !== undefined ? description : row.description;
     const oldMeta = check.rows[0].metadata || {};
@@ -123,8 +133,19 @@ private _meili: MeiliSearch | null = null;
       SET name = $1, description = $2, metadata = $3, x = $4, y = $5
       WHERE id = $6
       RETURNING *;
-    `;
+       `;
     const result = await this.db.query(sql, [finalName, finalDesc, JSON.stringify(finalMeta), finalX, finalY, id]);
+
+    // Renamed: its sub-nodes follow it (they store the parent's name), and saved labels catch up
+    if (finalName !== row.name) {
+      const moved = await this.db.query(
+        `UPDATE mindmap_nodes SET metadata = jsonb_set(metadata, '{parent}', to_jsonb($1::text))
+         WHERE lower(metadata->>'parent') = lower($2) AND id <> $3`,
+        [finalName, row.name, id]);
+      await this.db.query('UPDATE bookmarks SET node_name = $1 WHERE node_id = $2', [finalName, id]);
+      await this.db.query('UPDATE flashcards SET node_name = $1 WHERE node_id = $2', [finalName, id]);
+      this.logger.log(`Renamed node ${id}: "${row.name}" → "${finalName}" (${moved.rowCount || 0} sub-node(s) follow)`);
+    }
 
     // Sync Search
 try {

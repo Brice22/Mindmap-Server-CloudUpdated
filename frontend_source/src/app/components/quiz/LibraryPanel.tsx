@@ -298,6 +298,8 @@ export default function LibraryPanel(p: Props) {
 // ✎ Book details: author, pages, status, which PDF
 // ------------------------------------------------------------
 function BookDialog({ apiUrl, bk, onClose, onSave, onUploaded }: { apiUrl: string; bk: BookInfo; onClose: () => void; onSave: (c: Partial<BookInfo['book']>) => void; onUploaded: () => void }) {
+  const [title, setTitle] = useState(bk.name);
+  const [error, setError] = useState('');
   const [author, setAuthor] = useState(bk.book.author || '');
   const [total, setTotal] = useState(String(bk.book.totalPages ?? ''));
   const [status, setStatus] = useState(bk.book.status || 'reading');
@@ -307,9 +309,10 @@ function BookDialog({ apiUrl, bk, onClose, onSave, onUploaded }: { apiUrl: strin
   const chosen = pdfs.find(f => f.id === fileId);
   return (
     <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
-      <div style={{ ...box, width: 480 }} role="dialog" aria-label="Book details">
+           <div style={{ ...box, width: 480 }} role="dialog" aria-label="Book details">
         <h3 style={{ color: '#fff', marginTop: 0 }}>✎ {bk.name}</h3>
         <div style={{ display: 'grid', gridTemplateColumns: 'auto 1fr', gap: '8px 10px', alignItems: 'center' }}>
+          <span>Title</span><input value={title} onChange={e => setTitle(e.target.value)} maxLength={200} aria-label="Book title" style={field} />
           <span>Author</span><input value={author} onChange={e => setAuthor(e.target.value)} style={field} />
           <span>Pages</span><input type="number" min={0} value={total} onChange={e => setTotal(e.target.value)} placeholder={chosen?.text_pages ? `PDF has ${chosen.text_pages}` : ''} style={field} />
           <span>Status</span>
@@ -335,10 +338,18 @@ function BookDialog({ apiUrl, bk, onClose, onSave, onUploaded }: { apiUrl: strin
           }} style={{ ...btn, background: '#333', color: '#ddd' }}>📎 Upload another PDF</button>
           {busy && <span style={{ marginLeft: 8, color: '#f59e0b' }}>{busy}</span>}
         </div>
-        <div style={{ color: '#777', fontSize: 11, marginTop: 8 }}>Files you upload here also show in 📁 Files (attached to this book).</div>
+                <div style={{ color: '#777', fontSize: 11, marginTop: 8 }}>Files you upload here also show in 📁 Files (attached to this book).</div>
         <div style={{ display: 'flex', justifyContent: 'flex-end', gap: 8, marginTop: 16 }}>
           <button onClick={onClose} style={{ ...btn, background: '#333', color: '#ccc', fontSize: 13 }}>Cancel</button>
-          <button onClick={() => onSave({ author, totalPages: Number(total) || (chosen?.text_pages ?? null), status: status as any, fileId })}
+          {error && <span style={{ color: '#f87171', alignSelf: 'center', flex: 1 }}>{error}</span>}
+          <button onClick={async () => {
+            // ✏️ Renaming the book: its chapters follow it (they point at the book by name)
+            if (title.trim() && title.trim() !== bk.name) {
+              try { await call(`${apiUrl}/api/mindmap/node/${bk.id}`, 'PUT', { name: title.trim() }); }
+              catch (e: any) { setError(e.message); return; }
+            }
+            onSave({ author, totalPages: Number(total) || (chosen?.text_pages ?? null), status: status as any, fileId });
+          }}
             style={{ ...btn, background: '#0070f3', color: '#fff', fontSize: 13 }}>Save</button>
         </div>
       </div>
@@ -354,9 +365,10 @@ function ChapterDialog({ apiUrl, book, ch, onClose, onSaveChapter, onOpenDocs }:
   onSaveChapter: (c: Partial<ChapterInfo['chapter']>) => Promise<void> | void;
   onOpenDocs: (nodeId: number, docId?: number | null) => void;
 }) {
-  const [summary, setSummary] = useState<{ docId: number | null; text: string } | null>(null);
+   const [summary, setSummary] = useState<{ docId: number | null; text: string } | null>(null);
   const [adding, setAdding] = useState('');
   const [pre, setPre] = useState(ch.chapter.preQuestions || '');
+  const [name, setName] = useState(ch.name);
   const [start, setStart] = useState(String(ch.chapter.startPage ?? ''));
   const [end, setEnd] = useState(String(ch.chapter.endPage ?? ''));
   const [files, setFiles] = useState<LibraryFile[]>(ch.files);
@@ -376,9 +388,14 @@ function ChapterDialog({ apiUrl, book, ch, onClose, onSaveChapter, onOpenDocs }:
   const saveSummary = async () => {
     if (!adding.trim()) return;
     try { await call(`${apiUrl}/api/mindmap/study/summary/${ch.id}`, 'POST', { text: adding }); setAdding(''); setMsg('✓ Added to the summary'); loadSummary(); }
-    catch (e: any) { setMsg(e.message); }
+       catch (e: any) { setMsg(e.message); }
   };
   const saveDetails = async () => {
+    // ✏️ A new name first: it can be refused (names are unique)
+    if (name.trim() && name.trim() !== ch.name) {
+      try { await call(`${apiUrl}/api/mindmap/node/${ch.id}`, 'PUT', { name: name.trim() }); }
+      catch (e: any) { setMsg(e.message); return; }
+    }
     await onSaveChapter({ preQuestions: pre, startPage: Number(start) || null, endPage: Number(end) || null });
     setMsg('✓ Saved');
   };
@@ -402,19 +419,23 @@ function ChapterDialog({ apiUrl, book, ch, onClose, onSaveChapter, onOpenDocs }:
             <div style={{ color: '#888', fontSize: 12, marginTop: 3 }}>{book.name}{ch.chapter.finishedAt ? ` · finished ${ch.chapter.finishedAt}` : ''}</div>
           </div>
           <button onClick={onClose} style={{ ...btn, background: 'none', color: '#888', fontSize: 15 }}>✕</button>
-        </div>
+               </div>
 
         <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 14 }}>
+          <span>Name</span>
+          <input value={name} onChange={e => setName(e.target.value)} maxLength={200} aria-label="Chapter name" style={{ ...field, flex: 1 }} />
+        </div>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', marginTop: 8 }}>
           <span>Pages</span>
           <input type="number" min={0} value={start} onChange={e => setStart(e.target.value)} placeholder="from" style={{ ...field, width: 80 }} />
           <span>–</span>
           <input type="number" min={0} value={end} onChange={e => setEnd(e.target.value)} placeholder="to" style={{ ...field, width: 80 }} />
         </div>
 
-        <div style={{ color: '#aaa', margin: '14px 0 4px' }}>❓ Before reading <span style={{ color: '#666', fontSize: 12 }}>— skim the headings, then write what you expect or want answered (one per line). Your reviews show them again.</span></div>
+               <div style={{ color: '#aaa', margin: '14px 0 4px' }}>❓ Before reading <span style={{ color: '#666', fontSize: 12 }}>— skim the headings, then write what you expect or want answered (one per line). Your reviews show them again.</span></div>
         <textarea value={pre} onChange={e => setPre(e.target.value)} rows={3} style={{ ...field, width: '100%', boxSizing: 'border-box' }}
           placeholder={'What sets the feed limit for small tools?\nHow do they pick surface speed per material?'} />
-        <button onClick={saveDetails} style={{ ...btn, background: '#333', color: '#ddd', marginTop: 6 }}>Save pages + questions</button>
+        <button onClick={saveDetails} style={{ ...btn, background: '#333', color: '#ddd', marginTop: 6 }}>Save name, pages + questions</button>
 
         <div style={{ display: 'flex', alignItems: 'center', gap: 8, margin: '18px 0 6px' }}>
           <span style={{ color: '#fff', fontWeight: 600 }}>📝 Summary</span>

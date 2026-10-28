@@ -129,9 +129,10 @@ export default function ContextMenu({
   const menuItems: MenuItem[] = [
     // === OPEN ACTIONS ===
     { label: '📂 Open in Tab', icon: '📂', action: 'openTab' },
-    { label: '🪟 Open Workspace', icon: '🪟', action: 'openWorkspace', divider: true },
+        { label: '🪟 Open Workspace', icon: '🪟', action: 'openWorkspace', divider: true },
     
        // === NODE OPERATIONS ===
+    { label: '✏️ Rename…', icon: '✏️', action: 'rename' },
     { label: '➕ Add Child', icon: '➕', action: 'addChild' },
     { label: '🔗 Set Parent...', icon: '🔗', action: 'setParent' },
     { label: '🔗 Link to another node…', icon: '🔗', action: 'addLink' },
