@@ -99,8 +99,10 @@ export class QuizService {
   }
 
   async updateQuestion(id: number, b: any) {
-    const card = (await this.db.query('SELECT id, document_id FROM flashcards WHERE id = $1', [id])).rows[0];
+    const card = (await this.db.query('SELECT id, document_id, gen_key FROM flashcards WHERE id = $1', [id])).rows[0];
     if (!card) throw new NotFoundException('No such question');
+    // ✨ Made from your map: its text and format follow the map; only the LLE cell and difficulty change here
+    if (card.gen_key) b = { lleLevel: b.lleLevel, lleRep: b.lleRep, difficulty: b.difficulty };
     const f = this.clean(b, true);
     // Cards written in a Doc keep their text from the Doc (edit them there); their format and LLE tag can change here
     if (card.document_id != null) { delete f.question; delete f.answer; delete f.node_id; delete f.node_name; }

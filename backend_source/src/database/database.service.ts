@@ -342,8 +342,49 @@ export class DatabaseService implements OnModuleInit, OnModuleDestroy {
         `CREATE TABLE IF NOT EXISTS tags (
           id SERIAL PRIMARY KEY,
           name TEXT NOT NULL UNIQUE,
-          color TEXT NOT NULL DEFAULT '#60a5fa',
+                   color TEXT NOT NULL DEFAULT '#60a5fa',
           created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // ✨ Questions made from your map: the card remembers which (e.g. "prereq:12"); dismissed ones are listed apart
+        `ALTER TABLE flashcards ADD COLUMN IF NOT EXISTS gen_key TEXT`,
+        `CREATE UNIQUE INDEX IF NOT EXISTS idx_flashcards_gen_key ON flashcards(gen_key) WHERE gen_key IS NOT NULL`,
+        `CREATE TABLE IF NOT EXISTS quiz_dismissed (
+          gen_key TEXT PRIMARY KEY,
+          dismissed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        // 📚 Spaced chapter reviews: one row per review (the next one is added when you finish one)
+        `CREATE TABLE IF NOT EXISTS chapter_reviews (
+          id SERIAL PRIMARY KEY,
+          chapter_id INTEGER NOT NULL REFERENCES mindmap_nodes(id) ON DELETE CASCADE,
+          step INTEGER NOT NULL DEFAULT 0,
+          due DATE NOT NULL,
+          done_at TIMESTAMP,
+          rating SMALLINT,
+          recall TEXT,
+          connections TEXT,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `CREATE INDEX IF NOT EXISTS idx_chapter_reviews_due ON chapter_reviews(due) WHERE done_at IS NULL`,
+        // ✅ Today: your daily habits and the days you ticked them
+        `CREATE TABLE IF NOT EXISTS daily_items (
+          id SERIAL PRIMARY KEY,
+          name TEXT NOT NULL,
+          icon TEXT NOT NULL DEFAULT '✅',
+          target_minutes INTEGER,
+          sort_order INTEGER NOT NULL DEFAULT 0,
+          active BOOLEAN NOT NULL DEFAULT TRUE,
+          created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )`,
+        `INSERT INTO daily_items (name, icon, sort_order)
+         SELECT * FROM (VALUES ('Spaced review', '🧪', 1), ('Drawing', '✏️', 2), ('Reading', '📖', 3),
+                               ('Programming', '💻', 4), ('Article reading', '📰', 5)) AS v(name, icon, sort_order)
+         WHERE NOT EXISTS (SELECT 1 FROM daily_items)`,
+        `CREATE TABLE IF NOT EXISTS daily_checks (
+          item_id INTEGER NOT NULL REFERENCES daily_items(id) ON DELETE CASCADE,
+          day DATE NOT NULL,
+          minutes INTEGER,
+          note TEXT,
+          PRIMARY KEY (item_id, day)
         )`,
         // Small settings (e.g. the daily review's new-per-day), one JSON value per key
         `CREATE TABLE IF NOT EXISTS app_settings (

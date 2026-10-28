@@ -31,9 +31,10 @@ export interface QuizQuestion {
   spec: any;
   solution: string | null;
   nodeId: number | null;
-  nodeName: string;
+   nodeName: string;
   difficulty: 'easy' | 'medium' | 'hard';
   documentId: number | null;
+  genKey?: string | null;          // ✨ made from your map (text follows the map)
 }
 
 interface Props {
@@ -55,7 +56,8 @@ const btn: React.CSSProperties = { border: 'none', padding: '7px 14px', borderRa
 const emptyVar = (): QuizVariable => ({ name: '', min: 1, max: 10, step: 1, unit: '' });
 
 export default function QuestionEditor({ apiUrl, nodes, existing, preset, onClose, onSaved }: Props) {
-  const fromDoc = existing?.documentId != null;
+  const fromGen = !!existing?.genKey;                           // ✨ made from your map: only LLE cell + difficulty change
+  const fromDoc = existing?.documentId != null || fromGen;      // text can't be edited here
   const spec0 = existing?.spec || {};
   const [kind, setKind] = useState<QuizQuestion['kind']>(existing?.kind || 'recall');
   const [question, setQuestion] = useState(existing?.question || '');
@@ -121,7 +123,7 @@ export default function QuestionEditor({ apiUrl, nodes, existing, preset, onClos
     if (!fromDoc && !question.trim()) return setError('Write the question');
     if (!fromDoc && !ans) return setError('Write the answer');
     const node = nodeId != null ? nodes.find(n => n.id === nodeId) : null;
-    const body: any = { kind, lleLevel, lleRep, spec, solution: solution.trim() || null, difficulty };
+    const body: any = fromGen ? { lleLevel, lleRep, difficulty } : { kind, lleLevel, lleRep, spec, solution: solution.trim() || null, difficulty };
     if (!fromDoc) Object.assign(body, { question: question.trim(), answer: ans, nodeId: node?.id ?? null, nodeName: node?.name || null });
     setSaving(true);
     try {
@@ -139,15 +141,16 @@ export default function QuestionEditor({ apiUrl, nodes, existing, preset, onClos
   };
 
   return (
-    <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
+       <div style={overlay} onMouseDown={e => { if (e.target === e.currentTarget) onClose(); }}>
       <div style={box}>
         <h3 style={{ color: '#fff', margin: '0 0 10px' }}>{existing ? 'Edit question' : 'New question'}</h3>
-        {fromDoc && <div style={{ color: '#f59e0b', marginBottom: 8 }}>Written in a Doc — change its text there. Here you can set its format and LLE cell.</div>}
+        {fromGen ? <div style={{ color: '#f59e0b', marginBottom: 8 }}>✨ Made from your map — it changes when the links, sub-nodes or description change. Here you can set its LLE cell.</div>
+          : fromDoc && <div style={{ color: '#f59e0b', marginBottom: 8 }}>Written in a Doc — change its text there. Here you can set its format and LLE cell.</div>}
 
         {/* Format */}
         <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
           {(['recall', 'numeric', 'explain', 'choice'] as const).map(k => (
-            <button key={k} onClick={() => setKind(k)} style={{ ...btn, background: kind === k ? '#0070f3' : '#333', color: '#fff' }}>
+            <button key={k} onClick={() => setKind(k)} disabled={fromGen && kind !== k} style={{ ...btn, background: kind === k ? '#0070f3' : '#333', color: '#fff', opacity: fromGen && kind !== k ? 0.4 : 1 }}>
               {KIND_INFO[k].icon} {KIND_INFO[k].name}
             </button>
           ))}

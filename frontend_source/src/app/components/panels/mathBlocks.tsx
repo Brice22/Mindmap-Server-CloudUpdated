@@ -246,10 +246,10 @@ export function getSlashMenuItems(editor: any): DefaultReactSuggestionItem[] {
       group: 'Math',
       icon: <span style={{ fontSize: 16 }}>📍</span>,
       onItemClick: () => editor.insertInlineContent([{ type: 'place', props: { name: '', lat: 0, lng: 0 } }, ' ']),
-    },
+       },
           {
         title: 'Flashcard',
-        subtext: 'Question + answer → Quiz Center (or type "term :: definition")',
+        subtext: 'Question + answer → Quiz Center (or type "term :: definition", or hide words in {{double braces}})',
         aliases: ['flashcard', 'card', 'quiz', 'study', 'qa', 'question'],
         group: 'Study',
         icon: <span style={{ fontSize: 16 }}>🧠</span>,

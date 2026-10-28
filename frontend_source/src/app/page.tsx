@@ -1137,9 +1137,15 @@ export default function Dashboard() {
           {activeView === 'quiz' && (
             <QuizCenter
               nodes={nodes}
-              apiUrl={API_URL}
+                           apiUrl={API_URL}
               onOpenNode={(node) => { setSelectedNode(node); setActiveView('graph'); }}
               tags={tags}
+              onOpenDocs={(nodeId, docId) => {   // 📝 summaries / 🪜 LLE notes open in the node's Docs
+                if (docId) { openDocument(docId, nodeId); return; }
+                const n = nodes.find(x => x.id === nodeId);
+                if (n) { setWorkspaceOpenPanel('docs'); setWorkspaceNode(n); }
+              }}
+              onNodesChanged={fetchNodes}
               focusNodeId={quizFocusNodeId}
               onClearFocus={() => setQuizFocusNodeId(null)}
             />

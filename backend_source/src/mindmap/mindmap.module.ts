@@ -27,13 +27,16 @@ import { QuizService } from './quiz.service';
 import { QuizController } from './quiz.controller';
 import { TagsService } from './tags.service';
 import { TagsController } from './tags.controller';
+import { QuizGenService } from './quiz-gen.service';
+import { StudyService } from './study.service';
+import { StudyController } from './study.controller';
 import { DatabaseModule } from '../database/database.module'; // <--- Added this
 import { Neo4jModule } from '../neo4j/neo4j.module';
 
 @Module({
   imports: [DatabaseModule, Neo4jModule], // <--- ENSURES DatabaseService is available
-   controllers: [MindmapController, FilesController, SearchController, MediaController, NetworkController, LinksController, GraphController, NewsArchiveController, QuizController, TagsController],
-   providers: [MindmapService, MindmapGateway, BacklinksService, GeocodeService, TrashService, FilesService, WebClipService, FlashcardSyncService, SearchService, FileTextService, MediaService, RegionsService, TorrentsService, LinksService, GraphService, NewsArchiveService, QuizService, TagsService],
+   controllers: [MindmapController, FilesController, SearchController, MediaController, NetworkController, LinksController, GraphController, NewsArchiveController, QuizController, TagsController, StudyController],
+   providers: [MindmapService, MindmapGateway, BacklinksService, GeocodeService, TrashService, FilesService, WebClipService, FlashcardSyncService, SearchService, FileTextService, MediaService, RegionsService, TorrentsService, LinksService, GraphService, NewsArchiveService, QuizService, TagsService, QuizGenService, StudyService],
    exports: [MindmapService],
 })
 export class MindmapModule {}

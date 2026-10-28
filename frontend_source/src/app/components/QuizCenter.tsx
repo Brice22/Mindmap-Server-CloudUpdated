@@ -22,6 +22,11 @@ import QuestionRunner, { type RevealInfo } from './quiz/QuestionRunner';
 import LleChart from './quiz/LleChart';
 import SynthesisBox from './quiz/SynthesisBox';
 import ExportDialog from './quiz/ExportDialog';
+import SuggestionsDialog from './quiz/SuggestionsDialog';
+import LleLadder from './quiz/LleLadder';
+import LibraryPanel from './quiz/LibraryPanel';
+import ChapterReview from './quiz/ChapterReview';
+import TodayPanel from './quiz/TodayPanel';
 import { metaOf as labelMeta, tagsOf, withDescendants, type Tag } from '@/lib/labels';
 
 
@@ -40,6 +45,7 @@ interface Flashcard {
   lastReview: string;
   documentId: number | null;     // written in this doc (edit it there)
   documentTitle: string | null;
+  genKey: string | null;         // ✨ made from your map
   // Question generator
   kind: 'recall' | 'numeric' | 'explain' | 'choice';
   lleLevel: number | null;
@@ -65,10 +71,12 @@ type ViewMode = 'deck' | 'quiz' | 'stats';
 interface QuizCenterProps {
   nodes: Node[];
   onOpenNode: (node: Node) => void;
-   apiUrl: string;
+  apiUrl: string;
   focusNodeId?: number | null;     // open with this node's deck selected (from the Inspector)
   onClearFocus?: () => void;
   tags?: Tag[];                    // 🏷 tag decks
+  onOpenDocs?: (nodeId: number, docId?: number | null) => void;   // a node's Docs (summaries, LLE notes)
+  onNodesChanged?: () => void;     // books/chapters were added → reload the graph's nodes
 }
 
 interface DailyInfo {
@@ -89,7 +97,7 @@ const metaOf = (n: Node): any => (typeof n.metadata === 'string' ? JSON.parse(n.
 const btn: React.CSSProperties = { border: 'none', padding: '8px 14px', borderRadius: 6, cursor: 'pointer', fontSize: 13 };
 const tile: React.CSSProperties = { background: '#2a2a3a', padding: 16, borderRadius: 8 };
 
-export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onClearFocus, tags = [] }: QuizCenterProps) {
+export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onClearFocus, tags = [], onOpenDocs, onNodesChanged }: QuizCenterProps) {
   const [cards, setCards] = useState<Flashcard[]>([]);
   const [loaded, setLoaded] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('deck');
@@ -97,23 +105,36 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
   const [deckId, setDeckId] = useState<number | null>(focusNodeId ?? null);   // selected deck (node)
   const [deckTag, setDeckTag] = useState<string | null>(null);                 // 🏷 or a tag deck
   const [withSubNodes, setWithSubNodes] = useState(true);
-  const [daily, setDaily] = useState<DailyInfo | null>(null);
+   const [daily, setDaily] = useState<DailyInfo | null>(null);
   const [dailySettingsOpen, setDailySettingsOpen] = useState(false);
   const [search, setSearch] = useState('');
+  // Tabs: 🧪 Cards · 📚 Library · ✅ Today (remembered in this browser)
+  const [tab, setTab] = useState<'cards' | 'library' | 'today'>(() => {
+    try { const t = localStorage.getItem('hserver:quizTab'); return t === 'library' || t === 'today' ? t : 'cards'; } catch { return 'cards'; }
+  });
+  const chooseTab = (t: 'cards' | 'library' | 'today') => { setTab(t); try { localStorage.setItem('hserver:quizTab', t); } catch {} };
+  const [ladderNode, setLadderNode] = useState<{ id: number; name: string } | null>(null);       // 🪜 open for this node
+  const [reviewing, setReviewing] = useState<{ reviewId: number; chapter: { id: number; name: string } } | null>(null);  // 🔁
+  const [studyRefresh, setStudyRefresh] = useState(0);
 
   // Question editor (new / edit) and the LLE chart
    const [editing, setEditing] = useState<{ card?: Flashcard; preset?: { nodeId?: number | null; lleLevel?: number | null; lleRep?: string | null } } | null>(null);
   const [showChart, setShowChart] = useState(() => { try { return localStorage.getItem('hserver:lleChart') === '1'; } catch { return false; } });
   const [chartRefresh, setChartRefresh] = useState(0);
   const [showExport, setShowExport] = useState(false);   // 📤 Export for AI
+  const [showSuggest, setShowSuggest] = useState(false); // ✨ Suggested questions
+  const [suggestCount, setSuggestCount] = useState(0);
+  const [suggestRefresh, setSuggestRefresh] = useState(0);
   const [bulkGenerating, setBulkGenerating] = useState(false);
   const [message, setMessage] = useState('');
 
   // --------------------------------------------------------
   // LOAD
-  // --------------------------------------------------------
+    // --------------------------------------------------------
   const load = useCallback(async () => {
     try {
+      // ✨ Cards made from the map catch up with it first (renamed nodes, changed links…)
+      await fetch(`${apiUrl}/api/mindmap/quiz/generated/refresh`, { method: 'POST' }).catch(() => {});
       const res = await fetch(`${apiUrl}/api/mindmap/flashcards`);
       if (res.ok) {
         const data = await res.json();
@@ -122,7 +143,7 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           nodeName: c.node_name || 'Unlinked', difficulty: c.difficulty || 'medium', interval: c.interval_days || 0,
           easeFactor: parseFloat(c.ease_factor) || 2.5, nextReview: c.next_review || '',
           reviewCount: c.review_count || 0, lastReview: c.last_review || '',
-          documentId: c.document_id ?? null, documentTitle: c.document_title ?? null,
+          documentId: c.document_id ?? null, documentTitle: c.document_title ?? null, genKey: c.gen_key ?? null,
           kind: c.kind || 'recall', lleLevel: c.lle_level ?? null, lleRep: c.lle_rep ?? null,
           spec: c.spec || {}, solution: c.solution ?? null,
         })));
@@ -198,9 +219,20 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     if (deckTag) {
       const tagged = nodes.filter(n => tagsOf(n).includes(deckTag)).map(n => n.id);
       return withSubNodes ? withDescendants(nodes, tagged) : new Set(tagged);
-    }
+       }
     return deckId != null ? deckNodeIds(deckId) : null;
   }, [deckTag, deckId, deckNodeIds, nodes, withSubNodes]);
+  const scopeList = useMemo(() => (scopeIds ? Array.from(scopeIds) : null), [scopeIds]);
+  // ✨ How many suggested questions wait for this deck
+  useEffect(() => {
+    if (scopeList && !scopeList.length) { setSuggestCount(0); return; }
+    const t = setTimeout(() => {
+      fetch(`${apiUrl}/api/mindmap/quiz/suggestions${scopeList ? `?nodeIds=${scopeList.join(',')}` : ''}`)
+        .then(r => (r.ok ? r.json() : null)).then(d => setSuggestCount(d?.suggestions?.length || 0)).catch(() => {});
+    }, 300);
+    return () => clearTimeout(t);
+  }, [apiUrl, scopeList, cards.length, suggestRefresh]);
+
   const inDeck = useMemo(() => {
     if (!scopeIds) return cards;
     return cards.filter(c => c.nodeId != null && scopeIds.has(c.nodeId));
@@ -342,8 +374,17 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
     if (cardSet.length === 0) return;
     const shuffled = [...cardSet].sort(() => Math.random() - 0.5);
     setSession({ cards: shuffled, currentIndex: 0, showAnswer: false, reveal: null, askMechanism: null, shownAt: Date.now(), results: [], startTime: Date.now(), title });
-    setViewMode('quiz');
+       setViewMode('quiz');
   };
+
+  // A node's questions (with its sub-nodes) as a quiz — from the Library, a review or the ladder
+  const quizNode = (nodeId: number, title: string) => {
+    const ids = deckNodeIds(nodeId);
+    const set = cards.filter(c => c.nodeId != null && ids.has(c.nodeId));
+    if (!set.length) { setMessage(`No questions on ${title} yet.`); return; }
+    startQuiz(set, title);
+  };
+  const cardsUnder = (nodeId: number) => { const ids = deckNodeIds(nodeId); return cards.filter(c => c.nodeId != null && ids.has(c.nodeId)); };
 
   // Log the answer (rating, right/wrong, what failed) and go to the next question
   const finishCard = useCallback((rating: number, mechanism: string | null) => {
@@ -420,9 +461,17 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
   return (
     <div style={{ padding: 20, height: '100%', display: 'flex', flexDirection: 'column', background: '#1e1e2e', overflow: 'hidden' }}>
       {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0, gap: 12, flexWrap: 'wrap' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16, flexShrink: 0, gap: 12, flexWrap: 'wrap' }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <h2 style={{ color: '#fff', margin: 0 }}>Quiz Center</h2>
+          {viewMode === 'deck' && (
+            <div role="tablist" style={{ display: 'flex', gap: 4, background: '#2a2a3a', borderRadius: 8, padding: 3 }}>
+              {([['cards', '🧪 Cards'], ['library', '📚 Library'], ['today', '✅ Today']] as const).map(([k, name]) => (
+                <button key={k} role="tab" aria-selected={tab === k} onClick={() => chooseTab(k)}
+                  style={{ ...btn, padding: '6px 12px', background: tab === k ? '#0070f3' : 'transparent', color: tab === k ? '#fff' : '#aaa' }}>{name}</button>
+              ))}
+            </div>
+          )}
           {dueCards.length > 0 && (
             <span style={{ background: '#f59e0b', color: '#000', padding: '2px 10px', borderRadius: 12, fontSize: 12, fontWeight: 'bold' }}>
               {dueCards.length} due{deckNode ? ` in ${deckNode.name}` : ''}
@@ -430,18 +479,20 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
           )}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-                   {viewMode !== 'deck' && (
+                                   {viewMode !== 'deck' && (
             <button onClick={() => { setViewMode('deck'); setSession(null); }} style={{ ...btn, background: '#333', color: '#ccc' }}>← Back to Deck</button>
           )}
+          <button onClick={() => setShowSuggest(true)} title="Questions made from your map — keep the ones you want"
+            style={{ ...btn, background: suggestCount ? '#3b2f5c' : '#333', color: suggestCount ? '#e9d5ff' : '#ddd' }}>✨ Suggested{suggestCount ? ` (${suggestCount})` : ''}</button>
           <button onClick={() => setShowExport(true)} title="Your answers + LLE analysis as a report for an AI (Claude) to analyse"
             style={{ ...btn, background: '#333', color: '#ddd' }}>📤 Export for AI</button>
           <button onClick={() => setEditing({ preset: { nodeId: deckId } })}
             style={{ ...btn, background: '#0070f3', color: '#fff' }}>+ New question</button>
         </div>
-      </div>
+            </div>
 
       {/* DECK VIEW */}
-      {viewMode === 'deck' && (
+      {viewMode === 'deck' && tab === 'cards' && (
         <div style={{ flex: 1, overflow: 'auto' }}>
                     {/* Which deck */}
           <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 16, flexWrap: 'wrap' }}>
@@ -467,9 +518,11 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
             {(deckId != null || deckTag) && (
               <>
                 <label style={{ color: '#aaa', fontSize: 12, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <input type="checkbox" checked={withSubNodes} onChange={e => setWithSubNodes(e.target.checked)} /> include sub-nodes
+                                  <input type="checkbox" checked={withSubNodes} onChange={e => setWithSubNodes(e.target.checked)} /> include sub-nodes
                 </label>
                 {deckNode && <button onClick={() => onOpenNode(deckNode)} style={{ ...btn, padding: '4px 10px', background: '#333', color: '#ccc' }}>Show node</button>}
+                {deckNode && <button onClick={() => setLadderNode({ id: deckNode.id, name: deckNode.name })} title="Notes + questions at every LLE level × representation"
+                  style={{ ...btn, padding: '4px 10px', background: '#3b2f5c', color: '#e9d5ff' }}>🪜 LLE ladder</button>}
               </>
             )}
                       <button onClick={load} title="Reload cards (after editing Docs)" style={{ ...btn, padding: '4px 10px', background: '#333', color: '#ccc' }}>↻</button>
@@ -636,10 +689,10 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
             <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search cards…"
               style={{ background: '#2a2a3a', color: '#fff', border: '1px solid #444', borderRadius: 4, padding: '5px 8px', fontSize: 12 }} />
           </div>
-          <div style={{ background: '#2a2a3a', borderRadius: 8, overflow: 'hidden' }}>
+                    <div style={{ background: '#2a2a3a', borderRadius: 8, overflow: 'hidden' }}>
             {loaded && listed.length === 0 && (
               <div style={{ color: '#777', padding: 32, textAlign: 'center', fontSize: 13, lineHeight: 1.6 }}>
-                {search ? 'No cards match.' : <>No cards yet. In a node's Docs, type <b>/flashcard</b>, or write a line like<br /><code style={{ color: '#c4b5fd' }}>Mitochondria :: makes the cell&apos;s ATP</code><br />— then save the doc.</>}
+                {search ? 'No cards match.' : <>No cards yet. In a node's Docs, type <b>/flashcard</b>, or write a line like<br /><code style={{ color: '#c4b5fd' }}>Mitochondria :: makes the cell&apos;s ATP</code><br />or a fill-in-the-blank line like <code style={{ color: '#c4b5fd' }}>{'The mitochondria makes {{ATP}}'}</code><br />— then save the doc. Or open <b>✨ Suggested</b> for questions made from your map.</>}
               </div>
             )}
             {listed.map(card => (
@@ -654,16 +707,27 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
                     <MathText text={card.question} />
                   </div>
                   <div style={{ color: '#666', fontSize: 11 }}>
-                    {card.lleLevel || card.lleRep ? <span style={{ color: '#a78bfa' }}>{cellLabel(card.lleLevel, card.lleRep)} · </span> : null}
+                                        {card.lleLevel || card.lleRep ? <span style={{ color: '#a78bfa' }}>{cellLabel(card.lleLevel, card.lleRep)} · </span> : null}
                     {card.nodeName}
                     {card.documentId != null && <> · 📄 {card.documentTitle || 'doc'}</>}
+                    {card.genKey && <span title="Made from your map — changes with it"> · ✨ from map</span>}
                     {' · '}{isDue(card) ? <span style={{ color: '#f59e0b' }}>due</span> : `next ${card.nextReview}`}
                     {' · '}reviews {card.reviewCount}
                   </div>
                 </div>
                 <button onClick={() => setEditing({ card })} title={card.documentId != null ? 'Set format / LLE cell (text is edited in the doc)' : 'Edit'}
                   style={{ background: 'none', border: 'none', color: '#777', cursor: 'pointer' }}>✎</button>
-                {card.documentId != null ? (
+                {card.genKey ? (
+                  <button onClick={async () => {
+                    if (!confirm('Remove this question? It goes to the dismissed list in ✨ Suggested (you can restore it there).')) return;
+                    try {
+                      await fetch(`${apiUrl}/api/mindmap/quiz/suggestions/dismiss`, {
+                        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ keys: [card.genKey] }),
+                      });
+                    } catch {}
+                    setCards(prev => prev.filter(c => c.id !== card.id));
+                  }} title="Remove (dismiss)" style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer' }}>✕</button>
+                ) : card.documentId != null ? (
                   <span title="Written in a doc — edit or delete it there" style={{ color: '#555', fontSize: 11 }}>in doc</span>
                 ) : (
                   <button onClick={async () => {
@@ -675,6 +739,34 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
               </div>
             ))}
           </div>
+               </div>
+      )}
+
+      {/* 📚 LIBRARY */}
+      {viewMode === 'deck' && tab === 'library' && (
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          {message && <div style={{ color: '#f59e0b', fontSize: 13, marginBottom: 10 }}>{message}</div>}
+          <LibraryPanel apiUrl={apiUrl} today={today} refreshKey={studyRefresh + cards.length}
+            onReview={(reviewId, chapter) => setReviewing({ reviewId, chapter })}
+            onQuizNode={quizNode}
+            onNewQuestion={nodeId => setEditing({ preset: { nodeId } })}
+            onLadder={setLadderNode}
+            onOpenDocs={(nodeId, docId) => onOpenDocs?.(nodeId, docId)}
+            onShowNode={id => { const n = nodes.find(x => x.id === id); if (n) onOpenNode(n); }}
+            onNodesChanged={() => onNodesChanged?.()} />
+        </div>
+      )}
+
+      {/* ✅ TODAY */}
+      {viewMode === 'deck' && tab === 'today' && (
+        <div style={{ flex: 1, overflow: 'auto' }}>
+          <TodayPanel apiUrl={apiUrl} today={today} refreshKey={studyRefresh}
+            daily={{
+              count: dailyPlan.set.length, due: dailyPlan.due.length, fresh: dailyPlan.fresh.length, extra: dailyPlan.extra.length,
+              answered: daily?.answeredToday || 0, minimum: daily?.settings.dailyMinimum ?? 30, streak: daily?.streak || 0,
+            }}
+            onStartDaily={() => startQuiz(dailyPlan.set, 'Daily review')}
+            onReview={(reviewId, chapter) => setReviewing({ reviewId, chapter })} />
         </div>
       )}
 
@@ -780,7 +872,30 @@ export default function QuizCenter({ nodes, onOpenNode, apiUrl, focusNodeId, onC
       {showExport && (
         <ExportDialog apiUrl={apiUrl} deckTitle={deckTitle}
           deckNodeIds={scopeIds ? Array.from(scopeIds) : null}
-          onClose={() => setShowExport(false)} />
+                   onClose={() => setShowExport(false)} />
+      )}
+
+      {/* 🪜 LLE LADDER */}
+      {ladderNode && (
+        <LleLadder apiUrl={apiUrl} node={ladderNode} cards={cardsUnder(ladderNode.id)}
+          onClose={() => setLadderNode(null)} onChanged={load} onOpenDocs={onOpenDocs}
+          onFullEditor={(lleLevel, lleRep) => setEditing({ preset: { nodeId: ladderNode.id, lleLevel, lleRep } })} />
+      )}
+
+      {/* 🔁 CHAPTER REVIEW */}
+      {reviewing && (
+        <ChapterReview apiUrl={apiUrl} reviewId={reviewing.reviewId} chapter={reviewing.chapter} today={today}
+          cardCount={cardsUnder(reviewing.chapter.id).length}
+          preQuestions={(() => { const n = nodes.find(x => x.id === reviewing.chapter.id); return n ? metaOf(n).chapter?.preQuestions || '' : ''; })()}
+          onClose={() => setReviewing(null)} onDone={() => setStudyRefresh(n => n + 1)}
+          onQuiz={() => { const ch = reviewing.chapter; setReviewing(null); quizNode(ch.id, ch.name); }}
+          onLadder={() => { const ch = reviewing.chapter; setReviewing(null); setLadderNode(ch); }} />
+      )}
+
+      {/* ✨ SUGGESTED QUESTIONS */}
+      {showSuggest && (
+        <SuggestionsDialog apiUrl={apiUrl} deckTitle={deckTitle} nodeIds={scopeList}
+          onClose={() => { setShowSuggest(false); setSuggestRefresh(n => n + 1); }} onChanged={load} />
       )}
 
       {/* NEW / EDIT QUESTION */}
