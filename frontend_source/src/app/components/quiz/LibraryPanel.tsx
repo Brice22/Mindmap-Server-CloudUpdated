@@ -442,6 +442,7 @@ function ChapterDialog({ apiUrl, book, ch, onClose, onSaveChapter, onOpenDocs }:
           <span style={{ flex: 1 }} />
           {summary?.docId != null && <button onClick={() => onOpenDocs(ch.id, summary.docId)} style={{ ...btn, background: '#333', color: '#ddd' }}>✎ Edit in Docs</button>}
         </div>
+        
         <div style={{ background: '#1e1e2e', borderRadius: 6, padding: 10, maxHeight: 220, overflow: 'auto', color: '#ccc' }}>
           {summary?.text ? summary.text.split('\n').map((l, i) => <div key={i} style={{ padding: '1px 0' }}><MathText text={unCloze(l)} /></div>)
             : <span style={{ color: '#666' }}>No summary yet. Write it in your own words after reading — from memory first, then check the book.</span>}
