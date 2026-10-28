@@ -102,6 +102,10 @@ export class SearchService {
   async ensureReady() {
     if (!(await this.available())) return;
     try { await this.meili.createIndex(INDEX, { primaryKey: 'id' }); } catch {}
+        // An index made by an early save has no primary key, and Meilisearch can't pick one (id, refId,
+    // nodeId…), so every addition fails → set it (only allowed while the index is empty)
+    const info: any = await this.index().getRawInfo().catch(() => null);
+    if (info && !info.primaryKey) await this.index().update({ primaryKey: 'id' }).catch(() => {});
     await this.index().updateSettings({
       searchableAttributes: ['title', 'text', 'nodeName'],
       filterableAttributes: ['kind', 'refId', 'nodeId'],
@@ -123,7 +127,7 @@ export class SearchService {
   // ------------------------------------------------------------
   private async push(docs: any[]) {
     if (!docs.length || !(await this.available())) return;
-    try { await this.index().addDocuments(docs); } catch (e: any) { this.logger.warn('Search update failed: ' + e?.message); }
+    try { await this.index().addDocuments(docs, { primaryKey: 'id' }); } catch (e: any) { this.logger.warn('Search update failed: ' + e?.message); }
   }
 
   private async drop(fn: () => Promise<any>) {

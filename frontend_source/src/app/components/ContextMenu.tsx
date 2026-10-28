@@ -218,6 +218,7 @@ export default function ContextMenu({
     },
     // 🏷 What the node is for (Knowledge, Lesson plan, Book…) and its topic tags
     { label: '🏷 Role & tags…', icon: '🏷', action: 'labels' },
+    { label: '📋 Add to collection…', icon: '📋', action: 'addToCollection' },
     ...(meta.role === 'lessonPlan' ? [{ label: '🗂 Open lesson plan', icon: '🗂', action: 'openLessonPlan' }] : []),
 
     // === DANGER ZONE ===

@@ -54,6 +54,7 @@ import GraphToolsPanel, { type GraphToolMode, type GraphHighlight } from './comp
 import { isOwner } from './components/AuthGate';
 import LabelsDialog from './components/labels/LabelsDialog';
 import RenameDialog from './components/RenameDialog';
+import AddToCollectionDialog from './components/AddToCollectionDialog';
 import LessonPlanPanel from './components/labels/LessonPlanPanel';
 import { ROLES, roleOf, tagsOf, type Tag } from '@/lib/labels';
 import type { Node, Tab, Bookmark, CalendarEvent, FilterOptions, MindmapCollection, Panel, LinkType, NodeLink, GraphLink } from '@/lib/types';
@@ -145,6 +146,8 @@ export default function Dashboard() {
   const [labelsNode, setLabelsNode] = useState<Node | null>(null);
   const [lessonPlanId, setLessonPlanId] = useState<number | null>(null);
   const [renameNode, setRenameNode] = useState<Node | null>(null);   // ✏️ Rename dialog
+  const [collectionNode, setCollectionNode] = useState<Node | null>(null);   // 📋 Add to collection dialog
+  const [collectionFocus, setCollectionFocus] = useState<{ id: string; key: string } | null>(null);   // 🗺 collection lit up on the Graph
   const [hiddenLinkTypes, setHiddenLinkTypes] = useState<Set<string>>(() => {
     try { return new Set(JSON.parse(localStorage.getItem('hserver:hiddenLinkTypes') || '[]')); } catch { return new Set(); }
   });
@@ -475,8 +478,46 @@ export default function Dashboard() {
   // ============================================================
   // GRAPH EVENT HANDLERS
   // ============================================================
+  // 📋 COLLECTIONS - save to the server and keep the list in step
+  const createCollection = async (col: MindmapCollection): Promise<MindmapCollection | void> => {
+    try {
+      const res = await fetch(`${API_URL}/api/mindmap/collections`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(col),
+      });
+      const saved = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(saved.message || `error ${res.status}`);
+      const made = { ...col, id: String(saved.id) };
+      setCollections(prev => [...prev, made]);
+      return made;
+    } catch (e: any) { alert(`Could not save the collection (${e.message})`); }
+  };
+  const updateCollection = async (id: string, patch: Partial<MindmapCollection>) => {
+    try {
+      const res = await fetch(`${API_URL}/api/mindmap/collections/${id}`, {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      });
+      const d = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(d.message || `error ${res.status}`);
+      setCollections(prev => prev.map(c => (c.id === id
+        ? { ...c, name: d.name, icon: d.icon, description: d.description, nodeIds: d.node_ids || [] } : c)));
+    } catch (e: any) { alert(`Could not save the collection (${e.message})`); }
+  };
+  // 🗺 "Show in graph": light up the collection's nodes and the parent lines between them
+  const collectionHighlight = useMemo<GraphHighlight | null>(() => {
+    const col = collectionFocus ? collections.find(c => c.id === collectionFocus.id) : null;
+    if (!col || !collectionFocus) return null;
+    const ids = new Set(col.nodeIds);
+    const idByName = new Map(nodes.map(n => [n.name.toLowerCase(), n.id]));
+    const edges = nodes.filter(n => ids.has(n.id)).flatMap(n => {
+      const meta: any = typeof n.metadata === 'string' ? JSON.parse(n.metadata || '{}') : n.metadata || {};
+      const p = idByName.get(String(meta.parent || '').toLowerCase());
+      return p != null && ids.has(p) ? [{ from: p, to: n.id }] : [];
+    });
+    return { nodes: Array.from(ids), edges, fitKey: collectionFocus.key };
+  }, [collectionFocus, collections, nodes]);
+
   const handleNodeClick = (node: Node | null) => {
-    if (!node || !node.id) {
+  if (!node || !node.id) {
       setSelectedNode(null);
       return;
     }
@@ -555,6 +596,10 @@ export default function Dashboard() {
 
       case 'labels':
         setLabelsNode(node);
+        break;
+
+      case 'addToCollection':
+        setCollectionNode(node);
         break;
 
       case 'openLessonPlan':
@@ -943,6 +988,17 @@ export default function Dashboard() {
                           }}
                         />
                      )}
+                                         {/* 📋 A collection lit up on the graph (bottom-left) */}
+                     {!graphTool && collectionHighlight && (
+                       <div style={{ position: 'absolute', left: 10, bottom: 10, zIndex: 6, display: 'flex', alignItems: 'center', gap: 8,
+                         background: 'rgba(30,30,46,0.97)', border: '1px solid #444', borderRadius: 6, padding: '6px 10px', color: '#ccc', fontSize: 12 }}>
+                         <span>{collections.find(c => c.id === collectionFocus?.id)?.icon} <b style={{ color: '#fff' }}>{collections.find(c => c.id === collectionFocus?.id)?.name}</b> · {collectionHighlight.nodes.length} nodes</span>
+                         <button onClick={() => setCollectionFocus(f => (f ? { ...f, key: `${f.id}-${Date.now()}` } : f))} title="Zoom to them again"
+                           style={{ background: '#333', color: '#ccc', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>📍</button>
+                         <button onClick={() => setCollectionFocus(null)} title="Show all nodes again" aria-label="Stop showing the collection"
+                           style={{ background: '#333', color: '#ccc', border: 'none', borderRadius: 4, padding: '3px 8px', fontSize: 12, cursor: 'pointer' }}>✕</button>
+                       </div>
+                     )}
                      <MindMapGraph
                         data={nodes}
                         onNodeClick={handleNodeClick}
@@ -953,7 +1009,7 @@ export default function Dashboard() {
                         linkEdges={showLinkLines ? linkEdges : undefined}
                                                customLinks={graphLinks}
                         onLinksChanged={reloadLinks}
-                        highlight={graphTool ? graphHighlight : null}
+                        highlight={graphTool ? graphHighlight : collectionHighlight}
                         tagColors={tagColors}
                       />
                      {/* 🏷 Show only one role / tag / type (top-left) */}
@@ -1061,25 +1117,14 @@ export default function Dashboard() {
             <MindmapHub
               collections={collections}
               nodes={nodes}
-              onCreateCollection={async (col) => {
-                try {
-                  const res = await fetch(`${API_URL}/api/mindmap/collections`, {
-                    method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(col),
-                  });
-                  if (res.ok) {
-                    const saved = await res.json();
-                    setCollections(prev => [...prev, { ...col, id: String(saved.id) }]);
-                    return;
-                  }
-                } catch {}
-                setCollections(prev => [...prev, col]);
-              }}
-              onOpenCollection={(col) => {
-                console.log('Open collection:', col.name, col.nodeIds);
-              }}
+                           onCreateCollection={createCollection}
+              onUpdateCollection={updateCollection}
+              onOpenNode={(node) => { handleNodeClick(node); setActiveView('graph'); if (!rightPanelOpen) setRightPanelOpen(true); }}
+              onShowInGraph={(col) => { setGraphTool(null); setCollectionFocus({ id: col.id, key: `${col.id}-${Date.now()}` }); setActiveView('graph'); }}
               onDeleteCollection={async (id) => {
                 try { await fetch(`${API_URL}/api/mindmap/collections/${id}`, { method: 'DELETE' }); } catch {}
                 setCollections(prev => prev.filter(c => c.id !== id));
+                setCollectionFocus(f => (f?.id === id ? null : f));
               }}
             />
           )}
@@ -1375,6 +1420,18 @@ export default function Dashboard() {
             setTabs(prev => prev.map(t => (t.nodeId === id ? { ...t, title: newName } : t)));
             fetchNodes();
           }}
+        />
+      )}
+
+      {/* 📋 ADD TO COLLECTION */}
+      {collectionNode && (
+        <AddToCollectionDialog
+          node={nodes.find(n => n.id === collectionNode.id) || collectionNode}
+          allNodes={nodes}
+          collections={collections}
+          onUpdate={updateCollection}
+          onCreate={createCollection}
+          onClose={() => setCollectionNode(null)}
         />
       )}
 

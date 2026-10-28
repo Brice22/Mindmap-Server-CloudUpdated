@@ -348,6 +348,29 @@ return result.rows[0];
     );
     return result.rows[0];
   }
+    // Change a collection: any of name, icon, description, color, nodeIds (the full new list)
+  async updateCollection(id: number, data: any) {
+    const sets: string[] = [];
+    const vals: any[] = [];
+    const set = (col: string, v: any) => { vals.push(v); sets.push(`${col} = $${vals.length}`); };
+    if (data.name !== undefined) {
+      const name = String(data.name || '').trim();
+      if (!name) throw new BadRequestException('A collection needs a name');
+      set('name', name.slice(0, 200));
+    }
+    if (data.icon !== undefined) set('icon', String(data.icon || '📋').slice(0, 16));
+    if (data.description !== undefined) set('description', data.description ? String(data.description).slice(0, 2000) : null);
+    if (data.color !== undefined) set('color', data.color || null);
+    if (data.nodeIds !== undefined) {
+      const ids = [...new Set((Array.isArray(data.nodeIds) ? data.nodeIds : []).map(Number).filter((n: number) => Number.isInteger(n) && n > 0))];
+      set('node_ids', ids);
+    }
+    if (!sets.length) throw new BadRequestException('Nothing to change');
+    vals.push(id);
+    const r = await this.db.query(`UPDATE mindmap_collections SET ${sets.join(', ')} WHERE id = $${vals.length} RETURNING *`, vals);
+    if (!r.rows[0]) throw new NotFoundException('No such collection');
+    return r.rows[0];
+  }
   async deleteCollection(id: number) {
     await this.db.query('DELETE FROM mindmap_collections WHERE id = $1', [id]);
     return { success: true };

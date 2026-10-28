@@ -123,6 +123,8 @@ async searchNodes(@Query('q') query: string) {
   getCollections() { return this.mindmapService.getCollections(); }
   @Post('collections')
   addCollection(@Body() body: any) { return this.mindmapService.addCollection(body); }
+    @Put('collections/:id')
+  updateCollection(@Param('id') id: string, @Body() body: any) { return this.mindmapService.updateCollection(Number(id), body || {}); }
   @Delete('collections/:id')
   deleteCollection(@Param('id') id: string) { return this.mindmapService.deleteCollection(Number(id)); }
 
