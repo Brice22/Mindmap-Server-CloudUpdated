@@ -1,6 +1,6 @@
 'use client';
 
-// ============================================================
+//  ============================================================
 // 🪜 LLE LADDER - go through every level × representation for one topic
 // ============================================================
 // 35 steps: L1 Meaning · Verbal → … → L5 Creation · Intuitive. Each step:
