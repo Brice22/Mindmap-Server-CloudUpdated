@@ -112,7 +112,11 @@ export class SearchService {
       distinctAttribute: 'group',
     });
     const stats: any = await this.index().getStats().catch(() => null);
-    if (!stats?.numberOfDocuments) await this.reindexAll();
+    // Fewer entries than nodes + docs = only part of it was ever filled (e.g. the backlinks job
+    // pushed the docs at startup before this ran) → fill it all
+    const want = Number((await this.db.query(
+      'SELECT (SELECT count(*) FROM mindmap_nodes) + (SELECT count(*) FROM node_documents) AS n')).rows[0]?.n || 0);
+    if ((stats?.numberOfDocuments ?? 0) < want) await this.reindexAll();
   }
 
   status() {
