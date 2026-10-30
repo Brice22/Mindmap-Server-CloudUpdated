@@ -284,6 +284,13 @@ services:
       - NEWS_FETCH_TIME=${NEWS_FETCH_TIME:-06:00}       # 📰 the server fetches news once a day at this time
       - INCLUDE_TORRENTS=${BACKUP_INCLUDE_TORRENTS:-no}
       - BACKUP_STATUS_DIR=/backup-work/status
+      - TELLER_APPLICATION_ID=${TELLER_APPLICATION_ID:-}     # 🏦 banks via Teller (certificate files: /srv/hserverdir-data/secrets/teller/)
+      - TELLER_ENV=${TELLER_ENV:-development}
+      - WEBULL_APP_KEY=${WEBULL_APP_KEY:-}                   # 📈 Webull OpenAPI
+      - WEBULL_APP_SECRET=${WEBULL_APP_SECRET:-}
+      - FINANCE_SYNC_TIME=${FINANCE_SYNC_TIME:-05:30}        # banks + Webull sync every day at this time
+      - INTEGRATIONS_KEY=${INTEGRATIONS_KEY:-}               # encrypts the bank/Webull tokens in the database
+      - GARMIN_SYNC_KEY=${GARMIN_SYNC_KEY:-}                 # ⌚ same value as garmin_sync below
     networks:
       dev_net:
       storage_net:

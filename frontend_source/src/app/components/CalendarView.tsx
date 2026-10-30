@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { CalendarEvent, Node } from '@/lib/types';
+import { PhoneSyncButton } from './PhoneSync';
 
 // FullCalendar is heavy — dynamically import it
 // You'll need: bun add @fullcalendar/react @fullcalendar/daygrid @fullcalendar/timegrid
@@ -40,7 +41,10 @@ export default function CalendarView({ events, onEventClick, onDateClick, onUpda
           style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
           ←
         </button>
-        <h2 style={{ color: '#fff' }}>{monthNames[month]} {year}</h2>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+          <h2 style={{ color: '#fff' }}>{monthNames[month]} {year}</h2>
+          <PhoneSyncButton />
+        </div>
         <button onClick={() => setCurrentMonth(new Date(year, month + 1))}
           style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 16px', borderRadius: '4px', cursor: 'pointer' }}>
           →

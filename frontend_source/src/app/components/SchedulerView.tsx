@@ -2,6 +2,7 @@
 
 import React, { useState } from 'react';
 import type { CalendarEvent } from '@/lib/types';
+import { PhoneSyncButton } from './PhoneSync';
 
 interface SchedulerViewProps {
   events: CalendarEvent[];
@@ -105,6 +106,7 @@ export default function SchedulerView({ events, onAddEvent, onDeleteEvent, onUpd
               {d === 1 ? 'Day' : d === 3 ? '3 Day' : 'Week'}
             </button>
           ))}
+                   <PhoneSyncButton />
           <button onClick={() => setShowForm(true)}
             style={{ background: '#0070f3', border: 'none', color: '#fff', padding: '6px 16px', borderRadius: '6px', cursor: 'pointer' }}>
             + Event

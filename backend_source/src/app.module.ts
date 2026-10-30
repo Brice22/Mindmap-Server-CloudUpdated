@@ -15,6 +15,7 @@ import { PiholeModule } from './pihole/pihole.module';
 import { BackupsModule } from './backups/backups.module';
 import { ServicesModule } from './services/services.module';
 import { AuthModule } from './auth/auth.module';
+import { IntegrationsModule } from './integrations/integrations.module';
 
 @Module({
   imports: [
@@ -43,6 +44,8 @@ import { AuthModule } from './auth/auth.module';
     BackupsModule,
     ServicesModule,
     AuthModule,
+    IntegrationsModule,
+
  ]
 })
 export class AppModule {}

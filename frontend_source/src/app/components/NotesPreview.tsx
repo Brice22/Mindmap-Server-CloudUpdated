@@ -20,7 +20,7 @@ interface NotesPreviewProps {
 }
 
 export default function NotesPreview({ data, onOpen, height = 300 }: NotesPreviewProps) {
-  const [svg, setSvg] = useState<string | null>(null);
+  const [img, setImg] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
 
   const elements: any[] = (data?.elements || []).filter((el: any) => !el.isDeleted);
@@ -28,26 +28,24 @@ export default function NotesPreview({ data, onOpen, height = 300 }: NotesPrevie
   const versionKey = elements.map(el => `${el.id}:${el.version}`).join(',');
 
   useEffect(() => {
-    if (elements.length === 0) { setSvg(null); return; }
+    if (elements.length === 0) { setImg(null); return; }
     let cancelled = false;
     setFailed(false);
     import('@excalidraw/excalidraw')
-      .then(async ({ exportToSvg }) => {
-        const el = await exportToSvg({
+      .then(async ({ exportToCanvas }) => {
+        const canvas = await exportToCanvas({
           elements,
           appState: {
             exportBackground: true,
             exportWithDarkMode: true,   // match the dark editor
+            exportScale: 2,             // crisp on high-resolution screens
             viewBackgroundColor: data?.appState?.viewBackgroundColor || '#ffffff',
           },
          files: (await loadDrawingFiles(data?.files)) || null,   // pictures are stored in cloud_data
           exportPadding: 12,
+          maxWidthOrHeight: 1400,      // sharp in the box, never a giant image
         });
-        // Scale to the box instead of the drawing's real pixel size
-        el.setAttribute('width', '100%');
-        el.setAttribute('height', '100%');
-        el.setAttribute('preserveAspectRatio', 'xMidYMid meet');
-        if (!cancelled) setSvg(el.outerHTML);
+        if (!cancelled) setImg(canvas.toDataURL('image/png'));
       })
       .catch(() => { if (!cancelled) setFailed(true); });
     return () => { cancelled = true; };
@@ -72,8 +70,8 @@ export default function NotesPreview({ data, onOpen, height = 300 }: NotesPrevie
     <div onClick={onOpen} title="Click to edit in the workspace" style={boxStyle}>
       {failed ? (
         <span style={{ color: '#666', fontSize: 13 }}>Preview unavailable — click to open</span>
-      ) : svg ? (
-        <div style={{ width: '100%', height: '100%' }} dangerouslySetInnerHTML={{ __html: svg }} />
+      ) : img ? (
+        <img src={img} alt="Drawing preview" style={{ width: '100%', height: '100%', objectFit: 'contain' }} />
       ) : (
         <span style={{ color: '#666', fontSize: 13 }}>Loading preview…</span>
       )}

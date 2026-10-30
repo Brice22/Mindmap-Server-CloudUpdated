@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
   import { Chart, registerables } from 'chart.js';   // installed package (no CDN)
   Chart.register(...registerables);
+  import LinkedAccounts from './LinkedAccounts';
 
 interface Transaction {
   id: number;
@@ -11,6 +12,8 @@ interface Transaction {
   category: string;
   date: string;
   type: 'income' | 'expense';
+  source?: string;        // 'teller' = came from a linked bank
+
 }
 
 interface Investment {
@@ -38,7 +41,9 @@ const CAT_COLORS: Record<string, string> = {
 
 export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProps) {
   const [transactions, setTransactions] = useState<Transaction[]>([]);
-   // Load persisted data
+  const [showLinked, setShowLinked] = useState(false);
+  const [reloadKey, setReloadKey] = useState(0);     // bump = read transactions/investments again
+  // Load persisted data
   useEffect(() => {
     const load = async () => {
       try {
@@ -47,7 +52,7 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
           fetch(`${apiUrl}/api/mindmap/investments`).then(r => r.ok ? r.json() : []),
         ]);
         if (txRes.status === 'fulfilled') setTransactions(txRes.value.map((t: any) => ({
-          id: t.id, name: t.name, amount: parseFloat(t.amount), category: t.category, date: t.date, type: t.type,
+          id: t.id, name: t.name, amount: parseFloat(t.amount), category: t.category, date: t.date, type: t.type, source: t.source,
         })));
         if (invRes.status === 'fulfilled') setInvestments(invRes.value.map((i: any) => ({
           id: i.id, symbol: i.symbol, shares: parseFloat(i.shares), buyPrice: parseFloat(i.buy_price),
@@ -56,7 +61,7 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
       } catch {}
     };
     load();
-  }, [apiUrl]);
+  }, [apiUrl, reloadKey]);
 
   const [showForm, setShowForm] = useState(false);
   const [name, setName] = useState('');
@@ -178,7 +183,11 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
        {/* Header */}
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '20px' }}>
         <h2 style={{ color: '#fff', margin: 0 }}>Finance</h2>
-        <div style={{ display: 'flex', gap: '8px' }}>
+               <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => setShowLinked(true)} title="Banks (Teller) and Webull"
+            style={{ background: '#333', border: 'none', color: '#ccc', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
+            🔗 Linked accounts
+          </button>
           <button onClick={() => setActiveFinTab('transactions')}
             style={{ background: activeFinTab === 'transactions' ? '#0070f3' : '#333', border: 'none', color: '#fff', padding: '8px 12px', borderRadius: '4px', cursor: 'pointer', fontSize: '12px' }}>
             Transactions
@@ -242,7 +251,7 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
               }} />
               <div style={{ flex: 1 }}>
                 <div style={{ color: '#fff', fontSize: '14px' }}>{tx.name}</div>
-                <div style={{ color: '#666', fontSize: '11px' }}>{tx.category} · {tx.date}</div>
+                <div style={{ color: '#666', fontSize: '11px' }}>{tx.category} · {tx.date}{tx.source === 'teller' ? ' · 🏦 bank' : ''}</div>
               </div>
               <div style={{ color: tx.type === 'income' ? '#10b981' : '#ef4444', fontWeight: 'bold' }}>
                 {tx.type === 'income' ? '+' : '-'}${tx.amount.toFixed(2)}
@@ -254,6 +263,7 @@ export default function FinanceView({ onAddToCalendar, apiUrl }: FinanceViewProp
         </div>
       )}
 
+      {showLinked && <LinkedAccounts apiUrl={apiUrl} onClose={() => setShowLinked(false)} onChanged={() => setReloadKey(k => k + 1)} />}
       {/* Add Form Modal */}
       {showForm && (
         <div style={{ position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', justifyContent: 'center', alignItems: 'center', zIndex: 9999 }}

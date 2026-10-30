@@ -3,6 +3,7 @@
 import React, { useState, useEffect, useRef } from 'react';
   import { Chart, registerables } from 'chart.js';   // installed package (no CDN)
   Chart.register(...registerables);
+  import GarminPanel from './GarminPanel';
 
 interface HealthEntry {
   id: number;
@@ -152,6 +153,8 @@ export default function HealthView({ onAddToCalendar, apiUrl }: HealthViewProps)
         })}
       </div>
 
+      {/* ⌚ Garmin watch numbers */}
+      <GarminPanel apiUrl={apiUrl} />
       {/* Chart */}
       <div style={{ background: '#2a2a3a', padding: '20px', borderRadius: '8px', marginBottom: '20px' }}>
         <div style={{ display: 'flex', gap: '6px', marginBottom: '12px', flexWrap: 'wrap' }}>
